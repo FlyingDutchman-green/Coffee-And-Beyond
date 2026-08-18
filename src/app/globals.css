@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas-primary: #FFFFFF;
+  --color-canvas-secondary: #F7F7F5;
+  --color-background: #FFFFFF;
+  --color-foreground: #1E1E1C;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1E1E1C;
+  --color-secondary: #F7F7F5;
+  --color-secondary-foreground: #1E1E1C;
+  --color-muted: #F7F7F5;
+  --color-muted-foreground: #777772;
+  --color-accent-warm: #A69B8C;
+  --color-accent: #A69B8C;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #8C3426;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border-subtle: #E7E7E3;
+  --color-border: #E7E7E3;
+  --color-input: #E7E7E3;
+  --color-ring: #1E1E1C;
+  --color-charcoal: #1E1E1C;
+  --color-text-primary: #1E1E1C;
+  --color-text-muted: #777772;
+
+  --color-status-new-bg: #F7F7F5;
+  --color-status-new-border: #E7E7E3;
+  --color-status-new-text: #1E1E1C;
+  --color-status-confirmed-bg: #FDFBF7;
+  --color-status-confirmed-border: #E2D9C8;
+  --color-status-confirmed-text: #7A5E28;
+  --color-status-preparing-bg: #F4F7FA;
+  --color-status-preparing-border: #D2DCE5;
+  --color-status-preparing-text: #2B4C6F;
+  --color-status-ready-bg: #F5F8F3;
+  --color-status-ready-border: #D3DEC8;
+  --color-status-ready-text: #3B5E2B;
+  --color-status-completed-bg: #FAFAFA;
+  --color-status-completed-border: #E7E7E3;
+  --color-status-completed-text: #777772;
+  --color-status-cancelled-bg: #FDF6F5;
+  --color-status-cancelled-border: #ECCEC9;
+  --color-status-cancelled-text: #8C3426;
+
+  --font-sans: var(--font-manrope), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+:root {
+  --background: #FFFFFF;
+  --foreground: #1E1E1C;
+  --canvas-primary: #FFFFFF;
+  --canvas-secondary: #F7F7F5;
+  --border-subtle: #E7E7E3;
+  --text-primary: #1E1E1C;
+  --text-muted: #777772;
+  --accent-warm: #A69B8C;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom focus indicator conforming to DESIGN-SYSTEM.md */
+:focus-visible {
+  outline: 1px solid #1E1E1C;
+  outline-offset: 2px;
+}
+
+/* Tabular nums for pricing and timers */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hide scrollbar for clean horizontal tab scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
