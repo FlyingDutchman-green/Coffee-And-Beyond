@@ -162,8 +162,7 @@ export const DEFAULT_SETTINGS: CafeSettings = {
   },
   introVideo: {
     isEnabled: true,
-    videoUrl:
-      "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4",
+    videoUrl: "indexeddb://custom_intro_video",
     posterUrl:
       "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1600&auto=format&fit=crop",
   },
@@ -181,8 +180,7 @@ export const DEFAULT_SETTINGS: CafeSettings = {
   },
   hero: {
     mode: "video",
-    videoUrl:
-      "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4",
+    videoUrl: "indexeddb://custom_intro_video",
     posterUrl:
       "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1600&auto=format&fit=crop",
     badgeText: "ESTABLISHED 2015 • PEKALONGAN",
@@ -366,6 +364,7 @@ export const DEFAULT_SETTINGS: CafeSettings = {
 function notifySettingsSubscribers() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("coffee_settings_updated"));
+    window.dispatchEvent(new CustomEvent("cnb_settings_updated"));
   }
 }
 

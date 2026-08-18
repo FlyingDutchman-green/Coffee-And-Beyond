@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useSettingsStore, DEFAULT_SETTINGS } from "@/lib/settings-store";
-import { resolveMediaUrl, getMediaUrl, getMediaMetadata, formatBytes } from "@/lib/media-storage";
+import { useIntroVideoUrl } from "@/lib/use-media";
+import { getMediaMetadata, formatBytes } from "@/lib/media-storage";
 import {
   X,
   Play,
@@ -29,9 +30,12 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [videoSrc, setVideoSrc] = useState<string>(
-    introVideo.videoUrl || DEFAULT_SETTINGS.introVideo.videoUrl
+  // ALWAYS prioritize IndexedDB custom_intro_video over settings store value
+  const videoSrc = useIntroVideoUrl(
+    settings.hero?.videoUrl,
+    "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4"
   );
+
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(0.9);
@@ -41,50 +45,26 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [videoMetaNote, setVideoMetaNote] = useState<string | null>(null);
 
-  // Resolve video URL from IndexedDB or Settings
-  const updateVideoSource = useCallback(async () => {
-    try {
-      // 1. Check if custom_intro_video exists directly in IndexedDB
-      const customMediaUrl = await getMediaUrl("custom_intro_video");
-      const metadata = await getMediaMetadata("custom_intro_video");
-
-      if (customMediaUrl) {
-        setVideoSrc(customMediaUrl);
-        if (metadata?.size) {
-          setVideoMetaNote(`Custom HD Showreel (${formatBytes(metadata.size)})`);
-        }
-        return;
-      }
-
-      // 2. Otherwise resolve through url schema
-      const resolved = await resolveMediaUrl(
-        introVideo.videoUrl,
-        DEFAULT_SETTINGS.introVideo.videoUrl
-      );
-      setVideoSrc(resolved || DEFAULT_SETTINGS.introVideo.videoUrl);
-      setVideoMetaNote(null);
-    } catch (err) {
-      console.warn("Failed to resolve intro video from IndexedDB:", err);
-      setVideoSrc(DEFAULT_SETTINGS.introVideo.videoUrl);
-    }
-  }, [introVideo.videoUrl]);
-
+  // Check metadata for custom video size
   useEffect(() => {
-    updateVideoSource();
-
-    // Listen for IndexedDB updates
-    const handleMediaUpdated = (e: Event) => {
-      const customEvent = e as CustomEvent<{ key?: string }>;
-      if (!customEvent.detail || customEvent.detail.key === "custom_intro_video") {
-        updateVideoSource();
+    async function checkMeta() {
+      try {
+        const meta = await getMediaMetadata("custom_intro_video");
+        if (meta?.size) {
+          setVideoMetaNote(`Custom HD Showreel (${formatBytes(meta.size)})`);
+        } else {
+          setVideoMetaNote(null);
+        }
+      } catch {
+        setVideoMetaNote(null);
       }
-    };
+    }
+    checkMeta();
 
+    const handleMediaUpdated = () => checkMeta();
     window.addEventListener("cnb_media_updated", handleMediaUpdated);
-    return () => {
-      window.removeEventListener("cnb_media_updated", handleMediaUpdated);
-    };
-  }, [updateVideoSource]);
+    return () => window.removeEventListener("cnb_media_updated", handleMediaUpdated);
+  }, []);
 
   // Autoplay and reset when opened
   useEffect(() => {
@@ -110,7 +90,7 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
             setIsLoading(false);
           })
           .catch(() => {
-            // If browser blocks unmuted autoplay, mute and try again
+            // If browser blocks unmuted autoplay, mute and retry
             if (videoRef.current) {
               videoRef.current.muted = true;
               setIsMuted(true);
@@ -302,7 +282,7 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
           {/* Central Play/Pause Flash Overlay Indicator */}
           {!isPlaying && !isLoading && (
             <div className="absolute z-20 w-16 h-16 rounded-full bg-black/60 backdrop-blur-md border border-white/30 text-white flex items-center justify-center shadow-xl hover:scale-105 transition-transform">
-              <Play className="w-7 h-7 ml-1 text-accent-warm" />
+              <Play className="w-7 h-7 ml-1 text-accent-warm fill-accent-warm" />
             </div>
           )}
         </div>
@@ -346,7 +326,7 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 ml-0.5 text-accent-warm" />
+                    <Play className="w-3.5 h-3.5 ml-0.5 text-accent-warm fill-accent-warm" />
                     <span className="hidden sm:inline">Play</span>
                   </>
                 )}

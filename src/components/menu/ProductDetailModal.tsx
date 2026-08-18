@@ -18,6 +18,7 @@ import {
 import { Product } from "@/types/menu";
 import { formatPrice } from "@/data/menu";
 import { useOptionalCart } from "@/context/CartContext";
+import { useMediaUrl } from "@/lib/use-media";
 import { toast } from "sonner";
 
 interface ProductDetailModalProps {
@@ -29,6 +30,7 @@ export function ProductDetailModal({ product, onClose }: ProductDetailModalProps
   const router = useRouter();
   const cart = useOptionalCart();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const resolvedImageUrl = useMediaUrl(product?.imageUrl, "");
 
   const [quantity, setQuantity] = useState(1);
   const [temperature, setTemperature] = useState<string>("Dingin (Iced)");
@@ -150,11 +152,11 @@ export function ProductDetailModal({ product, onClose }: ProductDetailModalProps
         {/* Modal Scrollable Body */}
         <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1 text-left">
           {/* Product Photography Hero if available */}
-          {product.imageUrl && (
+          {resolvedImageUrl && (
             <div className="w-full aspect-4/3 rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative shadow-2xs">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={product.imageUrl}
+                src={resolvedImageUrl}
                 alt={product.name}
                 className="w-full h-full object-cover"
               />

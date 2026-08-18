@@ -6,6 +6,7 @@ import { formatPrice } from "@/data/menu";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import { Plus, Minus, Coffee, Leaf, Wheat, Utensils, Sparkles } from "lucide-react";
+import { useMediaUrl } from "@/lib/use-media";
 
 interface OrderProductCardProps {
   product: Product;
@@ -49,6 +50,7 @@ export function OrderProductCard({
   const { getItemQuantity, addItem, updateQuantity } = useCart();
   const quantity = getItemQuantity(product.id);
   const isSoldOut = !product.isAvailable;
+  const resolvedImageUrl = useMediaUrl(product.imageUrl, "");
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -101,11 +103,11 @@ export function OrderProductCard({
 
         {/* Right Thumbnail Emblem / Photo */}
         <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-md bg-canvas-secondary border border-border-subtle flex flex-col items-center justify-center shrink-0 text-text-muted overflow-hidden relative">
-          {product.imageUrl ? (
+          {resolvedImageUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={product.imageUrl}
+                src={resolvedImageUrl}
                 alt={product.name}
                 className="w-full h-full object-cover"
               />

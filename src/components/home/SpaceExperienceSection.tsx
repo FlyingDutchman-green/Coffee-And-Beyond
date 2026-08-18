@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useSettingsStore, DEFAULT_SETTINGS } from "@/lib/settings-store";
+import { useMediaUrl } from "@/lib/use-media";
 import { FadeInView } from "@/components/ui/motion";
 
 export function SpaceExperienceSection() {
@@ -17,12 +18,20 @@ export function SpaceExperienceSection() {
   const quoteText = spaceVibe.quoteText || DEFAULT_SETTINGS.spaceVibe.quoteText;
   const quoteAuthor =
     spaceVibe.quoteAuthor || DEFAULT_SETTINGS.spaceVibe.quoteAuthor;
-  const image1Url =
-    spaceVibe.image1Url || DEFAULT_SETTINGS.spaceVibe.image1Url;
-  const image2Url =
-    spaceVibe.image2Url || DEFAULT_SETTINGS.spaceVibe.image2Url;
-  const image3Url =
-    spaceVibe.image3Url || DEFAULT_SETTINGS.spaceVibe.image3Url;
+
+  // Reactively resolve Bento Collage media URLs
+  const image1Url = useMediaUrl(
+    spaceVibe.image1Url,
+    DEFAULT_SETTINGS.spaceVibe.image1Url
+  );
+  const image2Url = useMediaUrl(
+    spaceVibe.image2Url,
+    DEFAULT_SETTINGS.spaceVibe.image2Url
+  );
+  const image3Url = useMediaUrl(
+    spaceVibe.image3Url,
+    DEFAULT_SETTINGS.spaceVibe.image3Url
+  );
   const highlights =
     spaceVibe.highlights || DEFAULT_SETTINGS.spaceVibe.highlights;
 
@@ -142,4 +151,3 @@ export function SpaceExperienceSection() {
 }
 
 export default SpaceExperienceSection;
-

@@ -6,6 +6,7 @@ import {
   IntroVideoSettings,
   HeroEditorialSettings,
   DEFAULT_SETTINGS,
+  useSettingsStore,
 } from "@/lib/settings-store";
 import {
   validateImageFile,
@@ -102,6 +103,9 @@ export function HeroSettingsTab({
   onChangeIntroVideo,
   onChangeHeroEditorial,
 }: HeroSettingsTabProps) {
+  // Access updateSettings to sync hero.videoUrl when custom video is uploaded
+  const { updateSettings } = useSettingsStore();
+
   // Video upload state & IndexedDB integration
   const videoInputRef = useRef<HTMLInputElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -197,10 +201,20 @@ export function HeroSettingsTab({
       // Persist raw video Blob into client-side IndexedDB
       const objectUrl = await saveMediaFile("custom_intro_video", file, file.name);
       
-      // Update settings with indexeddb schema pointer
+      // Update settings with indexeddb schema pointer (both introVideo and hero.videoUrl)
       onChangeIntroVideo({ videoUrl: "indexeddb://custom_intro_video" });
+      // Sync settings.hero.videoUrl so useIntroVideoUrl fallback chain works correctly
+      updateSettings((prev) => ({
+        ...prev,
+        hero: { ...prev.hero, videoUrl: "indexeddb://custom_intro_video" },
+      }));
       setResolvedVideoPreviewUrl(objectUrl);
       setStoredVideoMeta({ name: file.name, size: file.size });
+
+      // Broadcast media update event so all components pick up the new video immediately
+      window.dispatchEvent(new CustomEvent("cnb_media_updated", {
+        detail: { key: "custom_intro_video", url: objectUrl }
+      }));
     } catch (err) {
       console.error("Gagal menyimpan video ke IndexedDB:", err);
       setVideoError("Gagal memproses file video. Silakan coba lagi.");

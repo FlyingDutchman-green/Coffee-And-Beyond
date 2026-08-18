@@ -5,6 +5,7 @@ import { Product } from "@/types/menu";
 import { formatPrice } from "@/data/menu";
 import { motion } from "@/components/ui/motion";
 import { Coffee, Eye, Sparkles, Leaf, Wheat, Utensils } from "lucide-react";
+import { useMediaUrl } from "@/lib/use-media";
 
 interface ProductCardProps {
   product: Product;
@@ -44,6 +45,7 @@ function CategoryIcon({ categorySlug }: { categorySlug?: string }) {
 
 export function ProductCard({ product, onSelect }: ProductCardProps) {
   const isSoldOut = !product.isAvailable;
+  const resolvedImageUrl = useMediaUrl(product.imageUrl, "");
 
   return (
     <motion.article
@@ -58,11 +60,11 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
       <div className="space-y-4">
         {/* Editorial Visual Ratio Box (4:3 Aspect Ratio) */}
         <div className="w-full aspect-4/3 rounded-md bg-canvas-secondary border border-border-subtle p-3.5 sm:p-4 flex flex-col justify-between relative overflow-hidden transition-colors group-hover:bg-[#F2F2EE]">
-          {product.imageUrl ? (
+          {resolvedImageUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={product.imageUrl}
+                src={resolvedImageUrl}
                 alt={product.name}
                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
               />

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useSettingsStore } from "@/lib/settings-store";
+import { useMediaUrl } from "@/lib/use-media";
 
 export interface BrandLogoProps {
   className?: string;
@@ -25,7 +26,9 @@ export function BrandLogo({
   const { settings } = useSettingsStore();
   const [iconError, setIconError] = useState(false);
 
-  const finalLogoUrl = logoUrl ?? settings.branding?.logoSvgUrl ?? "/logo.svg";
+  const rawLogoUrl = logoUrl ?? settings.branding?.logoSvgUrl ?? "/logo.svg";
+  const finalLogoUrl = useMediaUrl(rawLogoUrl, "/logo.svg");
+
   const finalAltText =
     altText ?? settings.branding?.altText ?? "Coffee And Beyond";
 
@@ -110,3 +113,5 @@ export function BrandLogo({
     </div>
   );
 }
+
+export default BrandLogo;
