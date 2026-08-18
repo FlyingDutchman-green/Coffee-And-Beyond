@@ -12,7 +12,6 @@ export interface BrandingSettings {
   instagram?: string;
   linktree?: string;
   logoSvgUrl: string;
-  brandTextSvgUrl: string;
   altText: string;
 }
 
@@ -157,7 +156,6 @@ export const DEFAULT_SETTINGS: CafeSettings = {
     instagram: "https://instagram.com/coffeeandbeyond.id",
     linktree: "https://linktr.ee/coffeeandbeyond",
     logoSvgUrl: "/logo.svg",
-    brandTextSvgUrl: "/teks-brand.svg",
     altText: "Coffee And Beyond Pekalongan",
   },
   introVideo: {
