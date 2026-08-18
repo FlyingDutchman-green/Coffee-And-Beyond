@@ -11,9 +11,9 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Coffee And Beyond Pekalongan | Specialty Roastery & Casual Dining",
+  title: "Coffee And Beyond | Specialty Coffee & Casual Dining Pekalongan",
   description:
-    "Specialty coffee sangrai mandiri bersama Samasta Coffee Roastery, casual dining lezat, dan ruang hangat untuk berkumpul dan bekerja di Jl. Diponegoro No. 15, Pekalongan.",
+    "Crafted with Passion, Brewed with Precision. Specialty coffee, mocktails, and comfort food in Pekalongan.",
   keywords: [
     "Coffee And Beyond",
     "Coffee And Beyond Pekalongan",
@@ -23,6 +23,15 @@ export const metadata: Metadata = {
     "Table QR Ordering",
   ],
   authors: [{ name: "Coffee And Beyond Pekalongan" }],
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml", sizes: "512x512" },
+    ],
+    shortcut: "/favicon.svg",
+    apple: [
+      { url: "/favicon.svg", sizes: "512x512", type: "image/svg+xml" },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -32,6 +41,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${manrope.variable} h-full antialiased`}>
+      <head>
+        <link
+          rel="icon"
+          href="/favicon.svg"
+          type="image/svg+xml"
+          sizes="512x512"
+        />
+        <link rel="apple-touch-icon" href="/favicon.svg" sizes="512x512" />
+      </head>
       <body className="min-h-full flex flex-col bg-canvas-primary text-text-primary selection:bg-[#E7E7E3] selection:text-[#1E1E1C]">
         {children}
         <Toaster
