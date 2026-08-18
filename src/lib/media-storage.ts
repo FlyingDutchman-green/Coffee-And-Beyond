@@ -346,3 +346,77 @@ export function formatBytes(bytes: number, decimals = 1): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
+
+/**
+ * Converts a base64 data URL string into a Blob object.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] ?? "image/webp";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Saves an image data URL into IndexedDB by converting it to a Blob first.
+ * Returns an "indexeddb://<key>" URI pointer — the actual data URL is NOT stored in localStorage.
+ *
+ * Usage:
+ *   const pointer = await saveImageDataUrl("hero_poster_1x1", croppedDataUrl);
+ *   // pointer === "indexeddb://hero_poster_1x1"
+ *   onChangeSettings({ posterUrl: pointer });
+ *
+ * @param key     Unique IndexedDB key (e.g. "hero_poster_1x1", "space_vibe_1")
+ * @param dataUrl Base64 data URL from canvas/FileReader
+ * @returns       "indexeddb://<key>" pointer string
+ */
+export async function saveImageDataUrl(
+  key: string,
+  dataUrl: string
+): Promise<string> {
+  if (!dataUrl.startsWith("data:")) {
+    // Already a URL/pointer — return as-is
+    return dataUrl;
+  }
+
+  const blob = dataUrlToBlob(dataUrl);
+  await saveMediaFile(key, blob, `${key}.webp`);
+
+  // Notify all hooks listening for this key
+  notifyMediaUpdated(key, false);
+
+  return `indexeddb://${key}`;
+}
+
+/**
+ * Deletes all IndexedDB media entries whose keys start with a given prefix.
+ * Useful for cleaning up all menu product images on a full menu reset.
+ *
+ * @param prefix  e.g. "menu_img_" to delete all "menu_img_<id>" entries
+ */
+export async function deleteMediaByPrefix(prefix: string): Promise<void> {
+  if (!isIndexedDBSupported()) return;
+
+  try {
+    const db = await openMediaDatabase();
+    const allKeys = await new Promise<string[]>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], "readonly");
+      const store = transaction.objectStore(STORE_NAME);
+      const keysRequest = store.getAllKeys();
+      keysRequest.onsuccess = () => resolve(keysRequest.result as string[]);
+      keysRequest.onerror = () => reject(keysRequest.error);
+      transaction.oncomplete = () => db.close();
+    });
+
+    const matching = allKeys.filter((k) => k.startsWith(prefix));
+    for (const key of matching) {
+      await deleteMediaFile(key);
+    }
+  } catch (err) {
+    console.warn(`Error deleting media by prefix "${prefix}":`, err);
+  }
+}

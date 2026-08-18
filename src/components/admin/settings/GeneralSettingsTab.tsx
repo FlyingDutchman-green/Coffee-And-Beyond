@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import { BrandingSettings } from "@/lib/settings-store";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { compressImageToWebP } from "@/lib/image-utils";
+import { saveImageDataUrl, deleteMediaFile } from "@/lib/media-storage";
 import {
   Upload,
   RefreshCw,
@@ -45,10 +46,11 @@ export function GeneralSettingsTab({
       // If vector SVG file, read directly
       if (file.type.includes("svg") || file.name.endsWith(".svg")) {
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
           const dataUrl = event.target?.result as string;
           if (dataUrl) {
-            onChangeBranding({ logoSvgUrl: dataUrl });
+            const pointer = await saveImageDataUrl("brand_logo", dataUrl);
+            onChangeBranding({ logoSvgUrl: pointer });
             setUploadStatus("Icon Mark Vector (logo.svg) berhasil diperbarui!");
             setTimeout(() => setUploadStatus(null), 3500);
           }
@@ -60,7 +62,8 @@ export function GeneralSettingsTab({
       // If raster image (PNG/WebP/JPG), compress to WebP (<25KB)
       if (file.type.startsWith("image/")) {
         const webpDataUrl = await compressImageToWebP(file, 400, 0.9);
-        onChangeBranding({ logoSvgUrl: webpDataUrl });
+        const pointer = await saveImageDataUrl("brand_logo", webpDataUrl);
+        onChangeBranding({ logoSvgUrl: pointer });
         setUploadStatus("Icon Mark WebP terkompresi berhasil diperbarui!");
         setTimeout(() => setUploadStatus(null), 3500);
         return;
@@ -78,7 +81,12 @@ export function GeneralSettingsTab({
     }
   };
 
-  const handleResetLogo = () => {
+  const handleResetLogo = async () => {
+    try {
+      await deleteMediaFile("brand_logo");
+    } catch {
+      // ignore
+    }
     onChangeBranding({ logoSvgUrl: "/logo.svg" });
     setUploadStatus("Icon Mark reset ke default (/logo.svg).");
     setTimeout(() => setUploadStatus(null), 3000);

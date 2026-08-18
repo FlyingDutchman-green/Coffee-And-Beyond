@@ -15,12 +15,14 @@ import {
 } from "@/lib/image-utils";
 import {
   saveMediaFile,
+  saveImageDataUrl,
   getMediaUrl,
   getMediaMetadata,
   deleteMediaFile,
   resolveMediaUrl,
   formatBytes,
 } from "@/lib/media-storage";
+import { useMediaUrl } from "@/lib/use-media";
 import {
   Film,
   Image as ImageIcon,
@@ -127,6 +129,12 @@ export function HeroSettingsTab({
   const [zoom, setZoom] = useState<number>(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isCropping, setIsCropping] = useState<boolean>(false);
+
+  // Reactively resolve poster URL (whether data URL, https URL, or indexeddb:// pointer)
+  const resolvedPosterPreviewUrl = useMediaUrl(
+    heroEditorial.poster1x1Url,
+    DEFAULT_SETTINGS.heroEditorial.poster1x1Url
+  );
 
   // Synchronize IndexedDB Video state on mount and updates
   const checkStoredVideo = useCallback(async () => {
@@ -283,7 +291,9 @@ export function HeroSettingsTab({
         croppedAreaPixels,
         0
       );
-      onChangeHeroEditorial({ poster1x1Url: croppedImage });
+      // Persist raw WebP data into IndexedDB to avoid 5MB localStorage limit
+      const pointer = await saveImageDataUrl("hero_poster_1x1", croppedImage);
+      onChangeHeroEditorial({ poster1x1Url: pointer });
       setIsCropModalOpen(false);
       setSelectedPhotoSrc(null);
     } catch (err) {
@@ -563,10 +573,10 @@ export function HeroSettingsTab({
             {/* Square Preview Display */}
             <div className="md:col-span-4">
               <div className="aspect-square w-full max-w-[200px] rounded-xl overflow-hidden border border-border-subtle bg-canvas-primary shadow-xs relative">
-                {heroEditorial.poster1x1Url ? (
+                {resolvedPosterPreviewUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
-                    src={heroEditorial.poster1x1Url}
+                    src={resolvedPosterPreviewUrl}
                     alt="Hero 1:1 Poster Preview"
                     className="w-full h-full object-cover"
                   />
@@ -825,7 +835,7 @@ export function HeroSettingsTab({
                 <div className="aspect-square w-28 sm:w-36 rounded-xl overflow-hidden border border-[#E7E7E3] bg-canvas-secondary shadow-xs">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={heroEditorial.poster1x1Url}
+                    src={resolvedPosterPreviewUrl}
                     alt="Editorial Preview"
                     className="w-full h-full object-cover"
                   />

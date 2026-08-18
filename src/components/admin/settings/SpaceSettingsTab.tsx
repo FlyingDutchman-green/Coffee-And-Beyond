@@ -7,6 +7,8 @@ import {
   compressImageToWebP,
   formatDataUrlSize,
 } from "@/lib/image-utils";
+import { saveImageDataUrl } from "@/lib/media-storage";
+import { useMediaUrl } from "@/lib/use-media";
 import {
   Layers,
   Image as ImageIcon,
@@ -84,6 +86,11 @@ export function SpaceSettingsTab({
   const [uploadError3, setUploadError3] = useState<string | null>(null);
   const [compressingSlot, setCompressingSlot] = useState<1 | 2 | 3 | null>(null);
 
+  // Reactively resolve media URLs from IndexedDB, data URLs, or HTTP URLs
+  const previewImage1 = useMediaUrl(spaceVibe.image1Url);
+  const previewImage2 = useMediaUrl(spaceVibe.image2Url);
+  const previewImage3 = useMediaUrl(spaceVibe.image3Url);
+
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     slot: 1 | 2 | 3
@@ -117,9 +124,12 @@ export function SpaceSettingsTab({
       // Auto compress to WebP format (<100KB) with max 1200px dimension
       const webpDataUrl = await compressImageToWebP(file, 1200, 0.85);
 
-      if (slot === 1) onChangeSpaceVibe({ image1Url: webpDataUrl });
-      if (slot === 2) onChangeSpaceVibe({ image2Url: webpDataUrl });
-      if (slot === 3) onChangeSpaceVibe({ image3Url: webpDataUrl });
+      // Persist to IndexedDB to avoid 5MB localStorage limit
+      const pointer = await saveImageDataUrl(`space_vibe_${slot}`, webpDataUrl);
+
+      if (slot === 1) onChangeSpaceVibe({ image1Url: pointer });
+      if (slot === 2) onChangeSpaceVibe({ image2Url: pointer });
+      if (slot === 3) onChangeSpaceVibe({ image3Url: pointer });
     } catch (err) {
       console.error("Gagal mengompresi gambar:", err);
       setError("Gagal memproses gambar. Silakan coba lagi.");
@@ -202,7 +212,7 @@ export function SpaceSettingsTab({
                 {spaceVibe.image1Url ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
-                    src={spaceVibe.image1Url}
+                    src={previewImage1 || spaceVibe.image1Url}
                     alt="Slot 1 Preview"
                     className="w-full h-full object-cover"
                   />
@@ -210,6 +220,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image1Url?.startsWith("indexeddb:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    IndexedDB HD
                   </div>
                 )}
                 {spaceVibe.image1Url?.startsWith("data:") && (
@@ -304,7 +319,7 @@ export function SpaceSettingsTab({
                 {spaceVibe.image2Url ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
-                    src={spaceVibe.image2Url}
+                    src={previewImage2 || spaceVibe.image2Url}
                     alt="Slot 2 Preview"
                     className="w-full h-full object-cover"
                   />
@@ -312,6 +327,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image2Url?.startsWith("indexeddb:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    IndexedDB HD
                   </div>
                 )}
                 {spaceVibe.image2Url?.startsWith("data:") && (
@@ -406,7 +426,7 @@ export function SpaceSettingsTab({
                 {spaceVibe.image3Url ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
-                    src={spaceVibe.image3Url}
+                    src={previewImage3 || spaceVibe.image3Url}
                     alt="Slot 3 Preview"
                     className="w-full h-full object-cover"
                   />
@@ -414,6 +434,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image3Url?.startsWith("indexeddb:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    IndexedDB HD
                   </div>
                 )}
                 {spaceVibe.image3Url?.startsWith("data:") && (
@@ -724,7 +749,7 @@ export function SpaceSettingsTab({
                 <div className="aspect-[4/5] rounded-lg overflow-hidden border border-[#E7E7E3] bg-canvas-secondary">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={spaceVibe.image1Url}
+                    src={previewImage1 || spaceVibe.image1Url}
                     alt="Preview 1"
                     className="w-full h-full object-cover"
                   />
@@ -732,7 +757,7 @@ export function SpaceSettingsTab({
                 <div className="aspect-[4/5] rounded-lg overflow-hidden border border-[#E7E7E3] bg-canvas-secondary">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={spaceVibe.image2Url}
+                    src={previewImage2 || spaceVibe.image2Url}
                     alt="Preview 2"
                     className="w-full h-full object-cover"
                   />
@@ -741,7 +766,7 @@ export function SpaceSettingsTab({
               <div className="aspect-video sm:aspect-[21/9] rounded-lg overflow-hidden border border-[#E7E7E3] bg-canvas-secondary">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={spaceVibe.image3Url}
+                  src={previewImage3 || spaceVibe.image3Url}
                   alt="Preview 3"
                   className="w-full h-full object-cover"
                 />

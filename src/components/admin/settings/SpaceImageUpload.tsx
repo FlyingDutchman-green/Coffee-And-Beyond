@@ -7,6 +7,8 @@ import {
   readFileAsDataURL,
   getCroppedImg16x9,
 } from "@/lib/image-utils";
+import { saveImageDataUrl, resolveMediaUrl } from "@/lib/media-storage";
+import { useMediaUrl } from "@/lib/use-media";
 import {
   UploadCloud,
   Image as ImageIcon,
@@ -40,6 +42,9 @@ export function SpaceImageUpload({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reactively resolve IndexedDB object URL or data URL
+  const resolvedPreview = useMediaUrl(value, "");
 
   // Handle file selection
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,7 +90,9 @@ export function SpaceImageUpload({
         croppedAreaPixels,
         0
       );
-      onChange(croppedImage);
+      const key = `space_facility_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const pointer = await saveImageDataUrl(key, croppedImage);
+      onChange(pointer);
       setIsCropModalOpen(false);
       setSelectedImageSrc(null);
     } catch (err) {
@@ -143,7 +150,7 @@ export function SpaceImageUpload({
           <div className="relative w-full aspect-video rounded-md overflow-hidden border border-border-subtle bg-canvas-secondary group">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={value}
+              src={resolvedPreview || value}
               alt="Facility preview"
               className="w-full h-full object-cover"
             />

@@ -5,6 +5,8 @@ import {
   validateImageFile,
   readFileAsDataURL,
 } from "@/lib/image-utils";
+import { saveImageDataUrl, resolveMediaUrl } from "@/lib/media-storage";
+import { useMediaUrl } from "@/lib/use-media";
 import { ImageCropModal } from "@/components/admin/menu/ImageCropModal";
 import {
   Upload,
@@ -31,6 +33,9 @@ export function ImageUploadField({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reactively resolve IndexedDB object URL or data URL
+  const resolvedPreview = useMediaUrl(value, "");
 
   const processFile = async (file: File) => {
     setErrorMessage(null);
@@ -83,8 +88,15 @@ export function ImageUploadField({
     }
   };
 
-  const handleCropComplete = (croppedDataUrl: string) => {
-    onChange(croppedDataUrl);
+  const handleCropComplete = async (croppedDataUrl: string) => {
+    try {
+      const imgKey = `menu_img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const pointer = await saveImageDataUrl(imgKey, croppedDataUrl);
+      onChange(pointer);
+    } catch (err) {
+      console.warn("Failed to persist to IndexedDB, fallback to data URL:", err);
+      onChange(croppedDataUrl);
+    }
     setRawImageSrc(null);
     setIsCropModalOpen(false);
   };
@@ -94,9 +106,14 @@ export function ImageUploadField({
     setRawImageSrc(null);
   };
 
-  const handleAdjustExisting = () => {
+  const handleAdjustExisting = async () => {
     if (value) {
-      setRawImageSrc(value);
+      try {
+        const resolved = await resolveMediaUrl(value);
+        setRawImageSrc(resolved || value);
+      } catch {
+        setRawImageSrc(value);
+      }
       setIsCropModalOpen(true);
     }
   };
@@ -153,7 +170,7 @@ export function ImageUploadField({
           <div className="w-full aspect-4/3 relative flex items-center justify-center overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={value}
+              src={resolvedPreview || value}
               alt="Product preview"
               className="w-full h-full object-cover select-none"
             />
