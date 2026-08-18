@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import Cropper, { Area, Point } from "react-easy-crop";
 import {
   IntroVideoSettings,
   HeroEditorialSettings,
@@ -11,7 +10,6 @@ import {
 import {
   validateImageFile,
   readFileAsDataURL,
-  getCroppedImg1x1,
 } from "@/lib/image-utils";
 import {
   saveMediaFile,
@@ -23,6 +21,7 @@ import {
   formatBytes,
 } from "@/lib/media-storage";
 import { useMediaUrl } from "@/lib/use-media";
+import { UniversalImageCropModal } from "@/components/admin/common/UniversalImageCropModal";
 import {
   Film,
   Image as ImageIcon,
@@ -30,17 +29,12 @@ import {
   Play,
   Volume2,
   RotateCcw,
-  Check,
   Video,
   UploadCloud,
   AlertCircle,
   Eye,
   EyeOff,
   Crop,
-  X,
-  Trash2,
-  ZoomIn,
-  ZoomOut,
   Loader2,
   Layers,
   Database,
@@ -125,10 +119,6 @@ export function HeroSettingsTab({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [selectedPhotoSrc, setSelectedPhotoSrc] = useState<string | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState<boolean>(false);
-  const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState<number>(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
-  const [isCropping, setIsCropping] = useState<boolean>(false);
 
   // Reactively resolve poster URL (whether data URL, https URL, or indexeddb:// pointer)
   const resolvedPosterPreviewUrl = useMediaUrl(
@@ -263,9 +253,6 @@ export function HeroSettingsTab({
     try {
       const dataUrl = await readFileAsDataURL(file);
       setSelectedPhotoSrc(dataUrl);
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-      setCroppedAreaPixels(null);
       setIsCropModalOpen(true);
     } catch (err) {
       console.error("Failed to read photo:", err);
@@ -275,47 +262,21 @@ export function HeroSettingsTab({
     }
   };
 
-  const handleCropComplete = useCallback(
-    (_croppedArea: Area, pixelCrop: Area) => {
-      setCroppedAreaPixels(pixelCrop);
-    },
-    []
-  );
-
-  const handleApplyCrop = async () => {
-    if (!croppedAreaPixels || !selectedPhotoSrc) return;
+  const handlePhotoCropComplete = async (
+    _croppedBlob: Blob,
+    croppedDataUrl: string
+  ) => {
     try {
-      setIsCropping(true);
-      const croppedImage = await getCroppedImg1x1(
-        selectedPhotoSrc,
-        croppedAreaPixels,
-        0
-      );
       // Persist raw WebP data into IndexedDB to avoid 5MB localStorage limit
-      const pointer = await saveImageDataUrl("hero_poster_1x1", croppedImage);
+      const pointer = await saveImageDataUrl("hero_poster_1x1", croppedDataUrl);
       onChangeHeroEditorial({ poster1x1Url: pointer });
       setIsCropModalOpen(false);
       setSelectedPhotoSrc(null);
     } catch (err) {
-      console.error("Failed to crop image:", err);
+      console.error("Failed to save hero photo:", err);
       setPhotoError("Failed to crop image. Please try another file.");
-    } finally {
-      setIsCropping(false);
     }
   };
-
-  // Modal keyboard escape listener
-  useEffect(() => {
-    if (!isCropModalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isCropping) {
-        setIsCropModalOpen(false);
-        setSelectedPhotoSrc(null);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isCropModalOpen, isCropping]);
 
   return (
     <div className="space-y-10 animate-in fade-in duration-200">
@@ -847,123 +808,18 @@ export function HeroSettingsTab({
       </div>
 
       {/* 1:1 Photo Crop Modal */}
-      {isCropModalOpen && selectedPhotoSrc && (
-        <div
-          onClick={() => {
-            if (!isCropping) {
-              setIsCropModalOpen(false);
-              setSelectedPhotoSrc(null);
-            }
-          }}
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-charcoal/70 backdrop-blur-xs transition-opacity duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-canvas-primary border border-border-subtle rounded-lg shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150"
-          >
-            {/* Modal Header */}
-            <div className="p-4 border-b border-border-subtle flex items-center justify-between bg-canvas-primary">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-md bg-canvas-secondary border border-border-subtle text-text-primary">
-                  <Crop className="w-4 h-4 text-accent-warm" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-text-primary">
-                    Crop Hero Photo (1:1 Square)
-                  </h3>
-                  <p className="text-[11px] text-text-muted">
-                    Format WebP terkompresi otomatis (&lt;100KB)
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isCropping) {
-                    setIsCropModalOpen(false);
-                    setSelectedPhotoSrc(null);
-                  }
-                }}
-                disabled={isCropping}
-                className="p-1 text-text-muted hover:text-text-primary rounded-md border border-border-subtle cursor-pointer disabled:opacity-50"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Cropper Viewport (Locked 1:1 aspect) */}
-            <div className="relative w-full aspect-square bg-charcoal">
-              <Cropper
-                image={selectedPhotoSrc}
-                crop={crop}
-                zoom={zoom}
-                aspect={1}
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={handleCropComplete}
-                showGrid={true}
-              />
-            </div>
-
-            {/* Controls Bar */}
-            <div className="p-4 bg-canvas-secondary border-t border-border-subtle space-y-3">
-              <div className="flex items-center gap-2.5">
-                <ZoomOut className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                <input
-                  type="range"
-                  min={1}
-                  max={3}
-                  step={0.05}
-                  value={zoom}
-                  onChange={(e) => setZoom(Number(e.target.value))}
-                  aria-label="Image zoom slider"
-                  className="w-full accent-charcoal cursor-pointer"
-                />
-                <ZoomIn className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                <span className="font-mono text-xs font-semibold text-text-primary w-8 text-right tabular-nums">
-                  {zoom.toFixed(1)}x
-                </span>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCropModalOpen(false);
-                    setSelectedPhotoSrc(null);
-                  }}
-                  disabled={isCropping}
-                  className="px-3 py-1.5 text-xs font-medium text-text-muted hover:text-text-primary bg-canvas-primary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApplyCrop}
-                  disabled={isCropping || !croppedAreaPixels}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white bg-charcoal rounded-md hover:bg-[#2C2C28] transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-                >
-                  {isCropping ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Optimizing WebP...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Simpan Foto 1:1</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <UniversalImageCropModal
+        isOpen={isCropModalOpen}
+        imageSrc={selectedPhotoSrc}
+        aspectRatio={1}
+        title="Sesuaikan Foto Hero Poster (1:1 Square)"
+        subtitle="Rasio bujur sangkar 1:1 untuk showcase editorial beranda"
+        onCropComplete={handlePhotoCropComplete}
+        onCancel={() => {
+          setIsCropModalOpen(false);
+          setSelectedPhotoSrc(null);
+        }}
+      />
     </div>
   );
 }

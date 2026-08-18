@@ -4,23 +4,23 @@ import React, { useState, useRef } from "react";
 import { SpaceVibeSettings } from "@/lib/settings-store";
 import {
   validateImageFile,
-  compressImageToWebP,
+  readFileAsDataURL,
   formatDataUrlSize,
 } from "@/lib/image-utils";
-import { saveImageDataUrl } from "@/lib/media-storage";
+import { saveImageDataUrl, resolveMediaUrl } from "@/lib/media-storage";
 import { useMediaUrl } from "@/lib/use-media";
+import { UniversalImageCropModal } from "@/components/admin/common/UniversalImageCropModal";
 import {
   Layers,
   Image as ImageIcon,
   Sparkles,
   UploadCloud,
   Quote,
-  Check,
+  Crop,
+  Trash2,
+  RefreshCw,
   AlertCircle,
   Plus,
-  Trash2,
-  Loader2,
-  CheckCircle2,
 } from "lucide-react";
 
 interface SpaceSettingsTabProps {
@@ -84,14 +84,30 @@ export function SpaceSettingsTab({
   const [uploadError1, setUploadError1] = useState<string | null>(null);
   const [uploadError2, setUploadError2] = useState<string | null>(null);
   const [uploadError3, setUploadError3] = useState<string | null>(null);
-  const [compressingSlot, setCompressingSlot] = useState<1 | 2 | 3 | null>(null);
+
+  // Universal Cropper Modal State
+  const [cropModalState, setCropModalState] = useState<{
+    isOpen: boolean;
+    slot: 1 | 2 | 3 | null;
+    imageSrc: string | null;
+    aspectRatio: number;
+    title: string;
+    subtitle: string;
+  }>({
+    isOpen: false,
+    slot: null,
+    imageSrc: null,
+    aspectRatio: 4 / 5,
+    title: "",
+    subtitle: "",
+  });
 
   // Reactively resolve media URLs from IndexedDB, data URLs, or HTTP URLs
   const previewImage1 = useMediaUrl(spaceVibe.image1Url);
   const previewImage2 = useMediaUrl(spaceVibe.image2Url);
   const previewImage3 = useMediaUrl(spaceVibe.image3Url);
 
-  const handleFileUpload = async (
+  const handleFileInputChange = async (
     e: React.ChangeEvent<HTMLInputElement>,
     slot: 1 | 2 | 3
   ) => {
@@ -114,29 +130,123 @@ export function SpaceSettingsTab({
 
     const validation = validateImageFile(file);
     if (!validation.isValid) {
-      setError(validation.error || "Invalid image file");
+      setError(validation.error || "Format gambar tidak valid");
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
 
     try {
-      setCompressingSlot(slot);
-      // Auto compress to WebP format (<100KB) with max 1200px dimension
-      const webpDataUrl = await compressImageToWebP(file, 1200, 0.85);
+      const dataUrl = await readFileAsDataURL(file);
+      const isSlot3 = slot === 3;
+      setCropModalState({
+        isOpen: true,
+        slot,
+        imageSrc: dataUrl,
+        aspectRatio: isSlot3 ? 16 / 9 : 4 / 5,
+        title:
+          slot === 1
+            ? "Sesuaikan Foto Slot 1 (4:5 Nook)"
+            : slot === 2
+            ? "Sesuaikan Foto Slot 2 (4:5 Detail Barista)"
+            : "Sesuaikan Foto Slot 3 (16:9 Suasana Lebar)",
+        subtitle: isSlot3
+          ? "Rasio panorama 16:9 untuk suasana interior & meja komunal"
+          : slot === 1
+          ? "Rasio potret 4:5 untuk sudut seduh & ruang intim kafe"
+          : "Rasio potret 4:5 untuk detail seni cangkir & aksi barista",
+      });
+    } catch (err) {
+      console.error("Gagal membaca file gambar:", err);
+      setError("Gagal membaca file gambar. Silakan coba lagi.");
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
 
-      // Persist to IndexedDB to avoid 5MB localStorage limit
-      const pointer = await saveImageDataUrl(`space_vibe_${slot}`, webpDataUrl);
+  const handleAdjustExistingCrop = async (slot: 1 | 2 | 3) => {
+    const currentUrl =
+      slot === 1
+        ? spaceVibe.image1Url
+        : slot === 2
+        ? spaceVibe.image2Url
+        : spaceVibe.image3Url;
+    if (!currentUrl) return;
+
+    try {
+      const resolved = await resolveMediaUrl(currentUrl);
+      const src = resolved || currentUrl;
+      const isSlot3 = slot === 3;
+      setCropModalState({
+        isOpen: true,
+        slot,
+        imageSrc: src,
+        aspectRatio: isSlot3 ? 16 / 9 : 4 / 5,
+        title:
+          slot === 1
+            ? "Sesuaikan Foto Slot 1 (4:5 Nook)"
+            : slot === 2
+            ? "Sesuaikan Foto Slot 2 (4:5 Detail Barista)"
+            : "Sesuaikan Foto Slot 3 (16:9 Suasana Lebar)",
+        subtitle: isSlot3
+          ? "Rasio panorama 16:9 untuk suasana interior & meja komunal"
+          : slot === 1
+          ? "Rasio potret 4:5 untuk sudut seduh & ruang intim kafe"
+          : "Rasio potret 4:5 untuk detail seni cangkir & aksi barista",
+      });
+    } catch (err) {
+      console.error("Gagal membuka gambar untuk penyesuaian crop:", err);
+    }
+  };
+
+  const handleCropComplete = async (
+    _croppedBlob: Blob,
+    croppedDataUrl: string
+  ) => {
+    const slot = cropModalState.slot;
+    if (!slot) return;
+
+    const setError =
+      slot === 1
+        ? setUploadError1
+        : slot === 2
+        ? setUploadError2
+        : setUploadError3;
+
+    try {
+      setError(null);
+      // Persist raw WebP to IndexedDB
+      const pointer = await saveImageDataUrl(`space_vibe_${slot}`, croppedDataUrl);
 
       if (slot === 1) onChangeSpaceVibe({ image1Url: pointer });
       if (slot === 2) onChangeSpaceVibe({ image2Url: pointer });
       if (slot === 3) onChangeSpaceVibe({ image3Url: pointer });
+
+      // Broadcast update events for instant reactive refresh across tabs/components
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cnb_settings_updated"));
+        window.dispatchEvent(
+          new CustomEvent("cnb_media_updated", {
+            detail: { key: `space_vibe_${slot}`, url: croppedDataUrl },
+          })
+        );
+      }
     } catch (err) {
-      console.error("Gagal mengompresi gambar:", err);
-      setError("Gagal memproses gambar. Silakan coba lagi.");
+      console.error(`Gagal menyimpan foto slot ${slot}:`, err);
+      setError("Gagal menyimpan hasil foto ke IndexedDB.");
     } finally {
-      setCompressingSlot(null);
-      if (inputRef.current) inputRef.current.value = "";
+      setCropModalState((prev) => ({
+        ...prev,
+        isOpen: false,
+        imageSrc: null,
+        slot: null,
+      }));
     }
+  };
+
+  const handleRemovePhoto = (slot: 1 | 2 | 3) => {
+    if (slot === 1) onChangeSpaceVibe({ image1Url: "" });
+    if (slot === 2) onChangeSpaceVibe({ image2Url: "" });
+    if (slot === 3) onChangeSpaceVibe({ image3Url: "" });
   };
 
   const handleUpdateHighlight = (
@@ -208,18 +318,55 @@ export function SpaceSettingsTab({
               </div>
 
               {/* Preview */}
-              <div className="aspect-[4/5] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group">
+              <div className="aspect-[4/5] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group shadow-2xs">
                 {spaceVibe.image1Url ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={previewImage1 || spaceVibe.image1Url}
-                    alt="Slot 1 Preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewImage1 || spaceVibe.image1Url}
+                      alt="Slot 1 Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Overlay Action Bar on Hover */}
+                    <div className="absolute inset-0 bg-charcoal/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-3">
+                      <button
+                        type="button"
+                        onClick={() => handleAdjustExistingCrop(1)}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Crop className="w-3 h-3 text-accent-warm" />
+                        <span>Atur Crop</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInput1Ref.current?.click()}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Ganti</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(1)}
+                        className="p-1.5 bg-[#8C3426] text-white rounded-md hover:bg-[#732B20] transition-colors cursor-pointer"
+                        title="Hapus foto"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
+                  <div
+                    onClick={() => fileInput1Ref.current?.click()}
+                    className="w-full h-full flex flex-col items-center justify-center text-text-muted cursor-pointer hover:bg-canvas-secondary/70 transition-colors p-4 text-center"
+                  >
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
-                    <span className="text-[10px]">Empty Slot</span>
+                    <span className="text-[11px] font-medium text-text-primary">
+                      Slot 1 Kosong
+                    </span>
+                    <span className="text-[10px] text-text-muted">
+                      Klik untuk upload 4:5
+                    </span>
                   </div>
                 )}
                 {spaceVibe.image1Url?.startsWith("indexeddb:") && (
@@ -238,7 +385,7 @@ export function SpaceSettingsTab({
                 ref={fileInput1Ref}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => handleFileUpload(e, 1)}
+                onChange={(e) => handleFileInputChange(e, 1)}
                 className="hidden"
               />
 
@@ -249,26 +396,28 @@ export function SpaceSettingsTab({
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => fileInput1Ref.current?.click()}
-                disabled={compressingSlot === 1}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {compressingSlot === 1 ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Compressing WebP...</span>
-                  </>
-                ) : (
-                  <>
-                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                    <span>Upload &amp; Kompresi WebP</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileInput1Ref.current?.click()}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-canvas-primary border border-border-subtle rounded-md hover:bg-[#EFEFEA] hover:border-[#D0D0CA] transition-colors cursor-pointer shadow-2xs text-text-primary"
+                >
+                  <Crop className="w-3.5 h-3.5 text-accent-warm" />
+                  <span>Upload &amp; Potong Foto 4:5</span>
+                </button>
 
-              <div className="space-y-1">
+                {spaceVibe.image1Url && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustExistingCrop(1)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer text-text-muted hover:text-text-primary"
+                  >
+                    <span>Atur Fokus / Crop Ulang</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
                   Atau Direct Image URL
                 </label>
@@ -285,7 +434,7 @@ export function SpaceSettingsTab({
             </div>
 
             {/* Presets */}
-            <div className="pt-2 border-t border-border-subtle space-y-1">
+            <div className="pt-2 border-t border-border-subtle space-y-1 mt-3">
               <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT1_PHOTOS.map((p) => (
@@ -315,18 +464,55 @@ export function SpaceSettingsTab({
               </div>
 
               {/* Preview */}
-              <div className="aspect-[4/5] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group">
+              <div className="aspect-[4/5] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group shadow-2xs">
                 {spaceVibe.image2Url ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={previewImage2 || spaceVibe.image2Url}
-                    alt="Slot 2 Preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewImage2 || spaceVibe.image2Url}
+                      alt="Slot 2 Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Overlay Action Bar on Hover */}
+                    <div className="absolute inset-0 bg-charcoal/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-3">
+                      <button
+                        type="button"
+                        onClick={() => handleAdjustExistingCrop(2)}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Crop className="w-3 h-3 text-accent-warm" />
+                        <span>Atur Crop</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInput2Ref.current?.click()}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Ganti</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(2)}
+                        className="p-1.5 bg-[#8C3426] text-white rounded-md hover:bg-[#732B20] transition-colors cursor-pointer"
+                        title="Hapus foto"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
+                  <div
+                    onClick={() => fileInput2Ref.current?.click()}
+                    className="w-full h-full flex flex-col items-center justify-center text-text-muted cursor-pointer hover:bg-canvas-secondary/70 transition-colors p-4 text-center"
+                  >
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
-                    <span className="text-[10px]">Empty Slot</span>
+                    <span className="text-[11px] font-medium text-text-primary">
+                      Slot 2 Kosong
+                    </span>
+                    <span className="text-[10px] text-text-muted">
+                      Klik untuk upload 4:5
+                    </span>
                   </div>
                 )}
                 {spaceVibe.image2Url?.startsWith("indexeddb:") && (
@@ -345,7 +531,7 @@ export function SpaceSettingsTab({
                 ref={fileInput2Ref}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => handleFileUpload(e, 2)}
+                onChange={(e) => handleFileInputChange(e, 2)}
                 className="hidden"
               />
 
@@ -356,26 +542,28 @@ export function SpaceSettingsTab({
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => fileInput2Ref.current?.click()}
-                disabled={compressingSlot === 2}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {compressingSlot === 2 ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Compressing WebP...</span>
-                  </>
-                ) : (
-                  <>
-                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                    <span>Upload &amp; Kompresi WebP</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileInput2Ref.current?.click()}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-canvas-primary border border-border-subtle rounded-md hover:bg-[#EFEFEA] hover:border-[#D0D0CA] transition-colors cursor-pointer shadow-2xs text-text-primary"
+                >
+                  <Crop className="w-3.5 h-3.5 text-accent-warm" />
+                  <span>Upload &amp; Potong Foto 4:5</span>
+                </button>
 
-              <div className="space-y-1">
+                {spaceVibe.image2Url && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustExistingCrop(2)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer text-text-muted hover:text-text-primary"
+                  >
+                    <span>Atur Fokus / Crop Ulang</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
                   Atau Direct Image URL
                 </label>
@@ -392,7 +580,7 @@ export function SpaceSettingsTab({
             </div>
 
             {/* Presets */}
-            <div className="pt-2 border-t border-border-subtle space-y-1">
+            <div className="pt-2 border-t border-border-subtle space-y-1 mt-3">
               <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT2_PHOTOS.map((p) => (
@@ -422,18 +610,55 @@ export function SpaceSettingsTab({
               </div>
 
               {/* Preview */}
-              <div className="aspect-[4/5] lg:aspect-[4/5] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group">
+              <div className="aspect-video sm:aspect-[16/9] w-full rounded-lg overflow-hidden border border-border-subtle bg-canvas-secondary relative group shadow-2xs">
                 {spaceVibe.image3Url ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={previewImage3 || spaceVibe.image3Url}
-                    alt="Slot 3 Preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewImage3 || spaceVibe.image3Url}
+                      alt="Slot 3 Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Overlay Action Bar on Hover */}
+                    <div className="absolute inset-0 bg-charcoal/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-3">
+                      <button
+                        type="button"
+                        onClick={() => handleAdjustExistingCrop(3)}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Crop className="w-3 h-3 text-accent-warm" />
+                        <span>Atur Crop</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInput3Ref.current?.click()}
+                        className="px-2.5 py-1.5 bg-canvas-primary text-text-primary rounded-md text-[11px] font-semibold hover:bg-white transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Ganti</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(3)}
+                        className="p-1.5 bg-[#8C3426] text-white rounded-md hover:bg-[#732B20] transition-colors cursor-pointer"
+                        title="Hapus foto"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
+                  <div
+                    onClick={() => fileInput3Ref.current?.click()}
+                    className="w-full h-full flex flex-col items-center justify-center text-text-muted cursor-pointer hover:bg-canvas-secondary/70 transition-colors p-4 text-center"
+                  >
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
-                    <span className="text-[10px]">Empty Slot</span>
+                    <span className="text-[11px] font-medium text-text-primary">
+                      Slot 3 Kosong
+                    </span>
+                    <span className="text-[10px] text-text-muted">
+                      Klik untuk upload 16:9
+                    </span>
                   </div>
                 )}
                 {spaceVibe.image3Url?.startsWith("indexeddb:") && (
@@ -452,7 +677,7 @@ export function SpaceSettingsTab({
                 ref={fileInput3Ref}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => handleFileUpload(e, 3)}
+                onChange={(e) => handleFileInputChange(e, 3)}
                 className="hidden"
               />
 
@@ -463,26 +688,28 @@ export function SpaceSettingsTab({
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => fileInput3Ref.current?.click()}
-                disabled={compressingSlot === 3}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {compressingSlot === 3 ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Compressing WebP...</span>
-                  </>
-                ) : (
-                  <>
-                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                    <span>Upload &amp; Kompresi WebP</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileInput3Ref.current?.click()}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-canvas-primary border border-border-subtle rounded-md hover:bg-[#EFEFEA] hover:border-[#D0D0CA] transition-colors cursor-pointer shadow-2xs text-text-primary"
+                >
+                  <Crop className="w-3.5 h-3.5 text-accent-warm" />
+                  <span>Upload &amp; Potong Foto 16:9</span>
+                </button>
 
-              <div className="space-y-1">
+                {spaceVibe.image3Url && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdjustExistingCrop(3)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer text-text-muted hover:text-text-primary"
+                  >
+                    <span>Atur Fokus / Crop Ulang</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
                   Atau Direct Image URL
                 </label>
@@ -499,7 +726,7 @@ export function SpaceSettingsTab({
             </div>
 
             {/* Presets */}
-            <div className="pt-2 border-t border-border-subtle space-y-1">
+            <div className="pt-2 border-t border-border-subtle space-y-1 mt-3">
               <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT3_PHOTOS.map((p) => (
@@ -775,8 +1002,27 @@ export function SpaceSettingsTab({
           </div>
         </div>
       </div>
+
+      {/* Universal Image Crop Modal for Bento Vibe Slots (4:5 and 16:9) */}
+      <UniversalImageCropModal
+        isOpen={cropModalState.isOpen}
+        imageSrc={cropModalState.imageSrc}
+        aspectRatio={cropModalState.aspectRatio}
+        title={cropModalState.title}
+        subtitle={cropModalState.subtitle}
+        onCropComplete={handleCropComplete}
+        onCancel={() =>
+          setCropModalState((prev) => ({
+            ...prev,
+            isOpen: false,
+            imageSrc: null,
+            slot: null,
+          }))
+        }
+      />
     </div>
   );
 }
 
 export default SpaceSettingsTab;
+

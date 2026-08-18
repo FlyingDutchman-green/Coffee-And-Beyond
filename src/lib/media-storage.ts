@@ -155,6 +155,11 @@ export async function saveMediaFile(
 }
 
 /**
+ * Direct alias for saving a media Blob into IndexedDB.
+ */
+export const saveMediaBlob = saveMediaFile;
+
+/**
  * Retrieves the raw stored media Blob from IndexedDB.
  */
 export async function getMediaBlob(key: string): Promise<Blob | null> {

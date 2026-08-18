@@ -1,24 +1,14 @@
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect } from "react";
-import Cropper, { Area, Point } from "react-easy-crop";
-import {
-  validateImageFile,
-  readFileAsDataURL,
-  getCroppedImg16x9,
-} from "@/lib/image-utils";
-import { saveImageDataUrl, resolveMediaUrl } from "@/lib/media-storage";
+import React, { useState, useRef } from "react";
+import { validateImageFile, readFileAsDataURL } from "@/lib/image-utils";
+import { saveImageDataUrl } from "@/lib/media-storage";
 import { useMediaUrl } from "@/lib/use-media";
+import { UniversalImageCropModal } from "@/components/admin/common/UniversalImageCropModal";
 import {
   UploadCloud,
   Image as ImageIcon,
-  Crop,
-  Check,
-  X,
   Trash2,
-  ZoomIn,
-  ZoomOut,
-  Loader2,
   AlertCircle,
 } from "lucide-react";
 
@@ -35,10 +25,6 @@ export function SpaceImageUpload({
 }: SpaceImageUploadProps) {
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState<boolean>(false);
-  const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState<number>(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,9 +48,6 @@ export function SpaceImageUpload({
     try {
       const dataUrl = await readFileAsDataURL(file);
       setSelectedImageSrc(dataUrl);
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-      setCroppedAreaPixels(null);
       setIsCropModalOpen(true);
     } catch (err) {
       console.error("Failed to read image:", err);
@@ -74,32 +57,16 @@ export function SpaceImageUpload({
     }
   };
 
-  const handleCropComplete = useCallback(
-    (_croppedArea: Area, pixelCrop: Area) => {
-      setCroppedAreaPixels(pixelCrop);
-    },
-    []
-  );
-
-  const handleApplyCrop = async () => {
-    if (!croppedAreaPixels || !selectedImageSrc) return;
+  const handleCropComplete = async (_blob: Blob, croppedDataUrl: string) => {
     try {
-      setIsProcessing(true);
-      const croppedImage = await getCroppedImg16x9(
-        selectedImageSrc,
-        croppedAreaPixels,
-        0
-      );
       const key = `space_facility_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const pointer = await saveImageDataUrl(key, croppedImage);
+      const pointer = await saveImageDataUrl(key, croppedDataUrl);
       onChange(pointer);
       setIsCropModalOpen(false);
       setSelectedImageSrc(null);
     } catch (err) {
-      console.error("Failed to crop image:", err);
-      setValidationError("Failed to crop image. Please try another file.");
-    } finally {
-      setIsProcessing(false);
+      console.error("Failed to save cropped facility image:", err);
+      setValidationError("Failed to save image. Please try another file.");
     }
   };
 
@@ -107,19 +74,6 @@ export function SpaceImageUpload({
     onChange("");
     setValidationError(null);
   };
-
-  // Keyboard escape for modal
-  useEffect(() => {
-    if (!isCropModalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isProcessing) {
-        setIsCropModalOpen(false);
-        setSelectedImageSrc(null);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isCropModalOpen, isProcessing]);
 
   return (
     <div className="space-y-2">
@@ -192,129 +146,24 @@ export function SpaceImageUpload({
             Upload 16:9 Facility Photo
           </p>
           <p className="text-[11px] text-text-muted mt-0.5">
-            JPG, PNG, or WebP up to 5MB (Cropped 16:9)
+            JPG, PNG, or WebP up to 10MB (Cropped 16:9)
           </p>
         </div>
       )}
 
-      {/* 16:9 Crop Modal */}
-      {isCropModalOpen && selectedImageSrc && (
-        <div
-          onClick={() => {
-            if (!isProcessing) {
-              setIsCropModalOpen(false);
-              setSelectedImageSrc(null);
-            }
-          }}
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-charcoal/70 backdrop-blur-xs transition-opacity duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xl bg-canvas-primary border border-border-subtle rounded-lg shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150"
-          >
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-border-subtle flex items-center justify-between bg-canvas-primary">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-md bg-canvas-secondary border border-border-subtle text-text-primary">
-                  <Crop className="w-4 h-4 text-accent-warm" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-text-primary">
-                    Crop Facility Photo (16:9)
-                  </h3>
-                  <p className="text-xs text-text-muted">
-                    Adjust zoom and framing for widescreen showcase display
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isProcessing) {
-                    setIsCropModalOpen(false);
-                    setSelectedImageSrc(null);
-                  }
-                }}
-                disabled={isProcessing}
-                className="p-1.5 text-text-muted hover:text-text-primary rounded-md border border-border-subtle cursor-pointer disabled:opacity-50"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Cropper Viewport (Locked 16:9 aspect) */}
-            <div className="relative w-full h-72 sm:h-80 bg-charcoal">
-              <Cropper
-                image={selectedImageSrc}
-                crop={crop}
-                zoom={zoom}
-                aspect={16 / 9}
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={handleCropComplete}
-                showGrid={true}
-              />
-            </div>
-
-            {/* Controls Bar */}
-            <div className="p-4 sm:p-5 bg-canvas-secondary border-t border-border-subtle space-y-4">
-              <div className="flex items-center gap-3">
-                <ZoomOut className="w-4 h-4 text-text-muted shrink-0" />
-                <input
-                  type="range"
-                  min={1}
-                  max={3}
-                  step={0.05}
-                  value={zoom}
-                  onChange={(e) => setZoom(Number(e.target.value))}
-                  aria-label="Image zoom slider"
-                  className="w-full accent-charcoal cursor-pointer"
-                />
-                <ZoomIn className="w-4 h-4 text-text-muted shrink-0" />
-                <span className="font-mono text-xs font-semibold text-text-primary w-10 text-right tabular-nums">
-                  {zoom.toFixed(1)}x
-                </span>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCropModalOpen(false);
-                    setSelectedImageSrc(null);
-                  }}
-                  disabled={isProcessing}
-                  className="px-4 py-2 text-xs font-medium text-text-muted hover:text-text-primary bg-canvas-primary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApplyCrop}
-                  disabled={isProcessing || !croppedAreaPixels}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-medium text-white bg-charcoal rounded-md hover:bg-[#2C2C28] transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Optimizing WebP...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Save 16:9 Image</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 16:9 Universal Crop Modal */}
+      <UniversalImageCropModal
+        isOpen={isCropModalOpen}
+        imageSrc={selectedImageSrc}
+        aspectRatio={16 / 9}
+        title="Sesuaikan Foto Fasilitas (16:9 Widescreen)"
+        subtitle="Rasio lebar 16:9 untuk showcase fasilitas kafe"
+        onCropComplete={handleCropComplete}
+        onCancel={() => {
+          setIsCropModalOpen(false);
+          setSelectedImageSrc(null);
+        }}
+      />
     </div>
   );
 }

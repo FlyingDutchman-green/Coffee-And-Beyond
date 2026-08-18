@@ -352,6 +352,167 @@ export async function getCroppedImg1x1(
 }
 
 /**
+ * Converts a base64 data URL string into a Blob object.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)?.[1] ?? "image/webp";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Universal Cropper Function:
+ * Crops and compresses an image to any arbitrary aspect ratio with high quality smoothing,
+ * WebP encoding (quality 0.85), and returns both a WebP base64 Data URL and a raw Blob (<100KB target).
+ */
+export async function getCroppedImgUniversal(
+  imageSrc: string,
+  pixelCrop: Area,
+  aspectRatio = 4 / 3,
+  rotation = 0,
+  maxDimension = 1200,
+  quality = 0.85
+): Promise<{ dataUrl: string; blob: Blob }> {
+  const image = await createImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Unable to create canvas 2D rendering context.");
+  }
+
+  const rotRad = getRadianAngle(rotation);
+
+  let safeCanvas: HTMLCanvasElement;
+  let safeCtx: CanvasRenderingContext2D;
+
+  if (rotation !== 0) {
+    const sin = Math.abs(Math.sin(rotRad));
+    const cos = Math.abs(Math.cos(rotRad));
+    const boundingBoxWidth = image.width * cos + image.height * sin;
+    const boundingBoxHeight = image.width * sin + image.height * cos;
+
+    safeCanvas = document.createElement("canvas");
+    safeCanvas.width = boundingBoxWidth;
+    safeCanvas.height = boundingBoxHeight;
+    const sCtx = safeCanvas.getContext("2d");
+
+    if (!sCtx) {
+      throw new Error("Unable to create rotated canvas context.");
+    }
+    safeCtx = sCtx;
+
+    safeCtx.translate(boundingBoxWidth / 2, boundingBoxHeight / 2);
+    safeCtx.rotate(rotRad);
+    safeCtx.drawImage(image, -image.width / 2, -image.height / 2);
+  } else {
+    safeCanvas = document.createElement("canvas");
+    safeCanvas.width = image.width;
+    safeCanvas.height = image.height;
+    const sCtx = safeCanvas.getContext("2d");
+    if (!sCtx) {
+      throw new Error("Unable to create safe canvas context.");
+    }
+    safeCtx = sCtx;
+    safeCtx.drawImage(image, 0, 0);
+  }
+
+  // Calculate target dimensions based on aspectRatio
+  let targetWidth: number;
+  let targetHeight: number;
+
+  if (aspectRatio < 1) {
+    // Portrait (e.g. 4/5 = 0.8)
+    targetHeight = Math.min(
+      maxDimension,
+      Math.max(250, Math.round(pixelCrop.height))
+    );
+    targetWidth = Math.round(targetHeight * aspectRatio);
+  } else {
+    // Landscape / Square (e.g. 16/9, 4/3, 1/1)
+    targetWidth = Math.min(
+      maxDimension,
+      Math.max(250, Math.round(pixelCrop.width))
+    );
+    targetHeight = Math.round(targetWidth / aspectRatio);
+  }
+
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  ctx.drawImage(
+    safeCanvas,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+
+  let dataUrl = "";
+  try {
+    const webpDataUrl = canvas.toDataURL("image/webp", quality);
+    if (webpDataUrl.startsWith("data:image/webp")) {
+      dataUrl = webpDataUrl;
+    }
+  } catch {
+    // Fallback if browser throws on webp
+  }
+
+  if (!dataUrl) {
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  // Convert to Blob
+  const blob = await new Promise<Blob>((resolve) => {
+    canvas.toBlob(
+      (b) => {
+        if (b) {
+          resolve(b);
+        } else {
+          resolve(dataUrlToBlob(dataUrl));
+        }
+      },
+      dataUrl.startsWith("data:image/webp") ? "image/webp" : "image/jpeg",
+      quality
+    );
+  });
+
+  return { dataUrl, blob };
+}
+
+/**
+ * Crops and compresses an image to a 4:5 vertical ratio (max 960x1200 px) using HTML Canvas.
+ * Exports as compressed WebP/JPEG Data URL (<100KB).
+ */
+export async function getCroppedImg4x5(
+  imageSrc: string,
+  pixelCrop: Area,
+  rotation = 0
+): Promise<string> {
+  const { dataUrl } = await getCroppedImgUniversal(
+    imageSrc,
+    pixelCrop,
+    4 / 5,
+    rotation,
+    1200,
+    0.85
+  );
+  return dataUrl;
+}
+
+/**
  * Automatically resizes and compresses any image (File or Data URL) into lightweight WebP format (<150KB).
  * Preserves aspect ratio with max dimension limit (default 1200px) and 0.85 quality.
  */
