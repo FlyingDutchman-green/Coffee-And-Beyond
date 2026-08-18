@@ -5,6 +5,7 @@ import Cropper, { Area, Point } from "react-easy-crop";
 import {
   IntroVideoSettings,
   HeroEditorialSettings,
+  DEFAULT_SETTINGS,
 } from "@/lib/settings-store";
 import {
   validateImageFile,
@@ -12,12 +13,19 @@ import {
   getCroppedImg1x1,
 } from "@/lib/image-utils";
 import {
+  saveMediaFile,
+  getMediaUrl,
+  getMediaMetadata,
+  deleteMediaFile,
+  resolveMediaUrl,
+  formatBytes,
+} from "@/lib/media-storage";
+import {
   Film,
   Image as ImageIcon,
   Sparkles,
   Play,
   Volume2,
-  ExternalLink,
   RotateCcw,
   Check,
   Video,
@@ -31,9 +39,9 @@ import {
   ZoomIn,
   ZoomOut,
   Loader2,
-  FileVideo,
   Layers,
-  ArrowRight,
+  Database,
+  CheckCircle2,
 } from "lucide-react";
 
 interface HeroSettingsTabProps {
@@ -94,11 +102,17 @@ export function HeroSettingsTab({
   onChangeIntroVideo,
   onChangeHeroEditorial,
 }: HeroSettingsTabProps) {
-  // Video upload state
+  // Video upload state & IndexedDB integration
   const videoInputRef = useRef<HTMLInputElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isVideoUploading, setIsVideoUploading] = useState<boolean>(false);
-  const [uploadedVideoName, setUploadedVideoName] = useState<string | null>(null);
+  const [storedVideoMeta, setStoredVideoMeta] = useState<{
+    name?: string;
+    size: number;
+  } | null>(null);
+  const [resolvedVideoPreviewUrl, setResolvedVideoPreviewUrl] = useState<string>(
+    introVideo.videoUrl || DEFAULT_SETTINGS.introVideo.videoUrl
+  );
 
   // 1:1 Poster Crop State
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -110,7 +124,49 @@ export function HeroSettingsTab({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isCropping, setIsCropping] = useState<boolean>(false);
 
-  // Handle Video File Upload with strict 25MB validation
+  // Synchronize IndexedDB Video state on mount and updates
+  const checkStoredVideo = useCallback(async () => {
+    try {
+      const meta = await getMediaMetadata("custom_intro_video");
+      if (meta) {
+        setStoredVideoMeta({ name: meta.name, size: meta.size });
+      } else {
+        setStoredVideoMeta(null);
+      }
+
+      // Check preview URL
+      const customUrl = await getMediaUrl("custom_intro_video");
+      if (customUrl) {
+        setResolvedVideoPreviewUrl(customUrl);
+      } else {
+        const resolved = await resolveMediaUrl(
+          introVideo.videoUrl,
+          DEFAULT_SETTINGS.introVideo.videoUrl
+        );
+        setResolvedVideoPreviewUrl(resolved || DEFAULT_SETTINGS.introVideo.videoUrl);
+      }
+    } catch (err) {
+      console.warn("Failed to check stored video:", err);
+    }
+  }, [introVideo.videoUrl]);
+
+  useEffect(() => {
+    checkStoredVideo();
+
+    const handleMediaUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key?: string }>;
+      if (!customEvent.detail || customEvent.detail.key === "custom_intro_video") {
+        checkStoredVideo();
+      }
+    };
+
+    window.addEventListener("cnb_media_updated", handleMediaUpdated);
+    return () => {
+      window.removeEventListener("cnb_media_updated", handleMediaUpdated);
+    };
+  }, [checkStoredVideo]);
+
+  // Handle Video File Upload via IndexedDB (Supports up to 100MB effortlessly)
   const handleVideoFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -118,12 +174,11 @@ export function HeroSettingsTab({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Strict 25MB validation
-    const MAX_VIDEO_SIZE = 25 * 1024 * 1024; // 25 MB
+    // Up to 100MB limit for high quality intro video
+    const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB
     if (file.size > MAX_VIDEO_SIZE) {
       const errorMsg =
-        "Video file exceeds 25MB limit. Please upload a smaller video file.";
-      alert(errorMsg);
+        "Ukuran video melebihi batas 100MB. Harap gunakan video berukuran lebih kecil.";
       setVideoError(errorMsg);
       if (videoInputRef.current) videoInputRef.current.value = "";
       return;
@@ -131,7 +186,7 @@ export function HeroSettingsTab({
 
     // Verify video MIME type
     if (!file.type.startsWith("video/")) {
-      const errorMsg = "Please upload a valid MP4 or WebM video file.";
+      const errorMsg = "Harap unggah file video yang valid (MP4 atau WebM).";
       setVideoError(errorMsg);
       if (videoInputRef.current) videoInputRef.current.value = "";
       return;
@@ -139,17 +194,32 @@ export function HeroSettingsTab({
 
     try {
       setIsVideoUploading(true);
-      const dataUrl = await readFileAsDataURL(file);
-      onChangeIntroVideo({ videoUrl: dataUrl });
-      setUploadedVideoName(
-        `${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`
-      );
+      // Persist raw video Blob into client-side IndexedDB
+      const objectUrl = await saveMediaFile("custom_intro_video", file, file.name);
+      
+      // Update settings with indexeddb schema pointer
+      onChangeIntroVideo({ videoUrl: "indexeddb://custom_intro_video" });
+      setResolvedVideoPreviewUrl(objectUrl);
+      setStoredVideoMeta({ name: file.name, size: file.size });
     } catch (err) {
-      console.error("Failed to read video file:", err);
-      setVideoError("Failed to process uploaded video file. Please try again.");
+      console.error("Gagal menyimpan video ke IndexedDB:", err);
+      setVideoError("Gagal memproses file video. Silakan coba lagi.");
     } finally {
       setIsVideoUploading(false);
       if (videoInputRef.current) videoInputRef.current.value = "";
+    }
+  };
+
+  // Reset to default intro video
+  const handleResetVideo = async () => {
+    try {
+      await deleteMediaFile("custom_intro_video");
+      onChangeIntroVideo({ videoUrl: DEFAULT_SETTINGS.introVideo.videoUrl });
+      setStoredVideoMeta(null);
+      setResolvedVideoPreviewUrl(DEFAULT_SETTINGS.introVideo.videoUrl);
+      setVideoError(null);
+    } catch (err) {
+      console.error("Error resetting video:", err);
     }
   };
 
@@ -234,63 +304,78 @@ export function HeroSettingsTab({
           </h2>
         </div>
         <p className="text-xs text-text-muted">
-          Configure the dual-layered opening sections of the homepage: a clean 100% visual ambient video intro followed by an architectural 2-column editorial hero section.
+          Konfigurasi pembuka beranda: Video ambient dengan penyimpanan IndexedDB (mendukung video HD &gt;50MB tanpa batas kuota) dan 2-kolom editorial hero section.
         </p>
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 1: INTRO VIDEO SHOWCASE */}
+      {/* SECTION 1: INTRO VIDEO SHOWCASE (INDEXEDDB ENGINE) */}
       {/* ========================================================================= */}
       <div className="p-6 bg-canvas-secondary border border-border-subtle rounded-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-subtle pb-4">
           <div className="space-y-0.5">
             <h3 className="font-bold text-sm text-text-primary flex items-center gap-2">
               <Video className="w-4 h-4 text-accent-warm" />
-              <span>1. Ambient Intro Video Showcase</span>
+              <span>1. Ambient Intro Video Showcase (IndexedDB Persistent Storage)</span>
             </h3>
             <p className="text-xs text-text-muted">
-              Topmost ambient video banner with playback controls.
+              Topmost video showcase banner di halaman utama beranda.
             </p>
           </div>
 
-          {/* Visibility Toggle */}
-          <button
-            type="button"
-            onClick={() =>
-              onChangeIntroVideo({ isEnabled: !introVideo.isEnabled })
-            }
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border shrink-0 ${
-              introVideo.isEnabled
-                ? "bg-[#F5F8F3] border-[#D3DEC8] text-[#3B5E2B]"
-                : "bg-[#FDF6F5] border-[#ECCEC9] text-[#8C3426]"
-            }`}
-          >
-            {introVideo.isEnabled ? (
-              <>
-                <Eye className="w-3.5 h-3.5" />
-                <span>Showcase Active</span>
-              </>
-            ) : (
-              <>
-                <EyeOff className="w-3.5 h-3.5" />
-                <span>Hidden on Homepage</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Visibility Toggle */}
+            <button
+              type="button"
+              onClick={() =>
+                onChangeIntroVideo({ isEnabled: !introVideo.isEnabled })
+              }
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border shrink-0 ${
+                introVideo.isEnabled
+                  ? "bg-[#F5F8F3] border-[#D3DEC8] text-[#3B5E2B]"
+                  : "bg-[#FDF6F5] border-[#ECCEC9] text-[#8C3426]"
+              }`}
+            >
+              {introVideo.isEnabled ? (
+                <>
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Showcase Aktif</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>Disembunyikan</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Video Upload & Direct Link */}
+        {/* Video Upload & IndexedDB Indicators */}
         <div className="space-y-4">
           {/* File Upload Box */}
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-text-primary block">
-              Upload MP4 Video (Max 25MB limit)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-text-primary flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-accent-warm" />
+                <span>Upload Video Intro (IndexedDB Engine • Max 100MB)</span>
+              </label>
+              {storedVideoMeta && (
+                <button
+                  type="button"
+                  onClick={handleResetVideo}
+                  className="text-xs text-[#8C3426] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset ke Video Default</span>
+                </button>
+              )}
+            </div>
 
             <input
               ref={videoInputRef}
               type="file"
-              accept="video/mp4,video/webm"
+              accept="video/mp4,video/webm,video/quicktime"
               onChange={handleVideoFileChange}
               className="hidden"
             />
@@ -306,16 +391,16 @@ export function HeroSettingsTab({
               onClick={() => {
                 if (!isVideoUploading) videoInputRef.current?.click();
               }}
-              className="w-full border border-dashed border-border-subtle hover:border-[#A69B8C] bg-canvas-primary hover:bg-[#F2F2EE] rounded-lg p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group"
+              className="w-full border border-dashed border-border-subtle hover:border-charcoal bg-canvas-primary hover:bg-[#F2F2EE] rounded-lg p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group shadow-2xs"
             >
               {isVideoUploading ? (
                 <div className="flex flex-col items-center py-2">
                   <Loader2 className="w-6 h-6 animate-spin text-accent-warm mb-2" />
                   <p className="text-xs font-semibold text-text-primary">
-                    Processing video file...
+                    Menyimpan video ke IndexedDB client-side...
                   </p>
                   <p className="text-[11px] text-text-muted">
-                    Loading media buffer safely
+                    Memproses file video tanpa batas kuota localStorage
                   </p>
                 </div>
               ) : (
@@ -324,21 +409,37 @@ export function HeroSettingsTab({
                     <UploadCloud className="w-5 h-5 text-accent-warm" />
                   </div>
                   <p className="text-xs font-semibold text-text-primary">
-                    Click to select MP4 / WebM video file
+                    Klik untuk memilih file video MP4 / WebM
                   </p>
                   <p className="text-[11px] text-text-muted mt-0.5">
-                    Strict client-side protection: Max 25MB file size
+                    Tersimpan permanen di IndexedDB browser (Maksimal 100MB)
                   </p>
                 </>
               )}
             </div>
 
-            {uploadedVideoName && (
-              <div className="p-2.5 bg-[#F5F8F3] border border-[#D3DEC8] text-[#3B5E2B] rounded-md text-xs flex items-center justify-between">
+            {/* Status indicator if custom video is active in IndexedDB */}
+            {storedVideoMeta && (
+              <div className="p-3 bg-[#F5F8F3] border border-[#D3DEC8] text-[#3B5E2B] rounded-md text-xs flex items-center justify-between shadow-2xs">
                 <div className="flex items-center gap-2 truncate">
-                  <Check className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{uploadedVideoName}</span>
+                  <CheckCircle2 className="w-4 h-4 text-[#3B5E2B] shrink-0" />
+                  <span className="font-semibold">
+                    Video Tersimpan di IndexedDB ({formatBytes(storedVideoMeta.size)})
+                  </span>
+                  {storedVideoMeta.name && (
+                    <span className="text-[11px] text-[#557A46] truncate">
+                      • {storedVideoMeta.name}
+                    </span>
+                  )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetVideo}
+                  className="px-2.5 py-1 bg-white border border-[#D3DEC8] hover:bg-[#EAF2E6] text-[#3B5E2B] rounded text-[11px] font-medium transition-colors cursor-pointer shrink-0"
+                >
+                  Kembalikan Default
+                </button>
               </div>
             )}
           </div>
@@ -346,7 +447,7 @@ export function HeroSettingsTab({
           {/* Alternative Direct Video URL */}
           <div className="space-y-2">
             <label className="font-semibold text-xs text-text-primary block">
-              Or Alternative Direct Video URL (MP4 / WebM)
+              Atau Gunakan Direct Video URL (CDN / MP4 Online)
             </label>
             <input
               type="url"
@@ -359,7 +460,7 @@ export function HeroSettingsTab({
             />
             {/* Presets */}
             <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <span className="text-[10px] text-text-muted">Curated Samples:</span>
+              <span className="text-[10px] text-text-muted">Preset Sampel:</span>
               {PRESET_VIDEOS.map((preset) => (
                 <button
                   key={preset.name}
@@ -378,7 +479,7 @@ export function HeroSettingsTab({
           {/* Poster / Fallback Image URL */}
           <div className="space-y-2">
             <label className="font-semibold text-xs text-text-primary block">
-              Poster / Fallback Image URL
+              Poster / Thumbnail Fallback Image URL
             </label>
             <input
               type="url"
@@ -391,7 +492,7 @@ export function HeroSettingsTab({
             />
             {/* Presets */}
             <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <span className="text-[10px] text-text-muted">Curated Posters:</span>
+              <span className="text-[10px] text-text-muted">Preset Poster:</span>
               {PRESET_POSTERS.map((preset) => (
                 <button
                   key={preset.name}
@@ -419,14 +520,14 @@ export function HeroSettingsTab({
             <span>2. Editorial Hero &amp; 1:1 Square Poster</span>
           </h3>
           <p className="text-xs text-text-muted">
-            2-column editorial showcase with headline, narrative, and 1:1 curated photography.
+            Komposisi 2-kolom editorial dengan headline, deskripsi naratif, dan foto kurasi 1:1.
           </p>
         </div>
 
         {/* 1:1 Poster Image Section */}
         <div className="space-y-3">
           <label className="text-xs font-bold uppercase tracking-wider text-text-primary block">
-            1:1 Square Poster Photo
+            1:1 Square Poster Photo (WebP Otomatis &lt;100KB)
           </label>
 
           <input
@@ -463,7 +564,7 @@ export function HeroSettingsTab({
                 )}
                 <div className="absolute top-2 right-2">
                   <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-charcoal/80 text-white font-semibold">
-                    1:1
+                    1:1 WebP
                   </span>
                 </div>
               </div>
@@ -485,7 +586,7 @@ export function HeroSettingsTab({
               {/* Direct URL input */}
               <div className="space-y-1.5">
                 <label className="font-semibold text-[11px] text-text-primary block">
-                  Or Direct Image URL (1:1 Ratio)
+                  Atau Direct Image URL (1:1 Ratio)
                 </label>
                 <input
                   type="url"
@@ -645,17 +746,21 @@ export function HeroSettingsTab({
             {introVideo.isEnabled ? (
               <div className="relative w-full aspect-video sm:aspect-21/9 max-h-[300px] overflow-hidden bg-charcoal">
                 <video
+                  src={resolvedVideoPreviewUrl}
                   autoPlay
                   muted
                   loop
                   playsInline
                   poster={introVideo.posterUrl}
                   className="w-full h-full object-cover opacity-90"
-                >
-                  <source src={introVideo.videoUrl} type="video/mp4" />
-                </video>
-                <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-white text-[10px] font-mono backdrop-blur-xs">
-                  Clean Video Intro (No Text Overlay)
+                />
+                <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 text-white text-[10px] font-mono backdrop-blur-xs flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-warm inline-block animate-pulse" />
+                  <span>
+                    {storedVideoMeta
+                      ? `IndexedDB Custom Video (${formatBytes(storedVideoMeta.size)})`
+                      : "Clean Video Intro (No Text Overlay)"}
+                  </span>
                 </div>
                 <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-xs p-1 rounded-full border border-white/20">
                   <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-white text-[9px]">
@@ -745,7 +850,7 @@ export function HeroSettingsTab({
                     Crop Hero Photo (1:1 Square)
                   </h3>
                   <p className="text-[11px] text-text-muted">
-                    Adjust framing for 1:1 square editorial poster
+                    Format WebP terkompresi otomatis (&lt;100KB)
                   </p>
                 </div>
               </div>
@@ -821,12 +926,12 @@ export function HeroSettingsTab({
                   {isCropping ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Cropping...</span>
+                      <span>Optimizing WebP...</span>
                     </>
                   ) : (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>Save 1:1 Photo</span>
+                      <span>Simpan Foto 1:1</span>
                     </>
                   )}
                 </button>

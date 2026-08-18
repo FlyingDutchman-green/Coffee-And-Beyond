@@ -2,7 +2,11 @@
 
 import React, { useState, useRef } from "react";
 import { SpaceVibeSettings } from "@/lib/settings-store";
-import { validateImageFile, readFileAsDataURL } from "@/lib/image-utils";
+import {
+  validateImageFile,
+  compressImageToWebP,
+  formatDataUrlSize,
+} from "@/lib/image-utils";
 import {
   Layers,
   Image as ImageIcon,
@@ -13,6 +17,8 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 
 interface SpaceSettingsTabProps {
@@ -76,6 +82,7 @@ export function SpaceSettingsTab({
   const [uploadError1, setUploadError1] = useState<string | null>(null);
   const [uploadError2, setUploadError2] = useState<string | null>(null);
   const [uploadError3, setUploadError3] = useState<string | null>(null);
+  const [compressingSlot, setCompressingSlot] = useState<1 | 2 | 3 | null>(null);
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -106,14 +113,18 @@ export function SpaceSettingsTab({
     }
 
     try {
-      const dataUrl = await readFileAsDataURL(file);
-      if (slot === 1) onChangeSpaceVibe({ image1Url: dataUrl });
-      if (slot === 2) onChangeSpaceVibe({ image2Url: dataUrl });
-      if (slot === 3) onChangeSpaceVibe({ image3Url: dataUrl });
+      setCompressingSlot(slot);
+      // Auto compress to WebP format (<100KB) with max 1200px dimension
+      const webpDataUrl = await compressImageToWebP(file, 1200, 0.85);
+
+      if (slot === 1) onChangeSpaceVibe({ image1Url: webpDataUrl });
+      if (slot === 2) onChangeSpaceVibe({ image2Url: webpDataUrl });
+      if (slot === 3) onChangeSpaceVibe({ image3Url: webpDataUrl });
     } catch (err) {
-      console.error("Failed to read image file:", err);
-      setError("Failed to process image file.");
+      console.error("Gagal mengompresi gambar:", err);
+      setError("Gagal memproses gambar. Silakan coba lagi.");
     } finally {
+      setCompressingSlot(null);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
@@ -154,7 +165,7 @@ export function SpaceSettingsTab({
           </h2>
         </div>
         <p className="text-xs text-text-muted">
-          Configure the editorial narrative, philosophy pull-quote, and the 3-photo Bento Collage for the Homepage &ldquo;The Space&rdquo; section.
+          Konfigurasi narasi editorial, kutipan filosofi, dan 3 foto Bento Collage terkompresi WebP otomatis (&lt;100KB) untuk bagian &ldquo;The Space&rdquo; di Beranda.
         </p>
       </div>
 
@@ -165,10 +176,10 @@ export function SpaceSettingsTab({
         <div className="border-b border-border-subtle pb-4 space-y-0.5">
           <h3 className="font-bold text-sm text-text-primary flex items-center gap-2">
             <ImageIcon className="w-4 h-4 text-accent-warm" />
-            <span>1. Visual Bento Collage (3 Showcase Photo Slots)</span>
+            <span>1. Visual Bento Collage (3 Showcase Photo Slots • WebP &lt;100KB)</span>
           </h3>
           <p className="text-xs text-text-muted">
-            Slot 1 (Top Left Vertical), Slot 2 (Top Right Detail), and Slot 3 (Bottom Wide Interior).
+            Slot 1 (Top Left Portrait), Slot 2 (Top Right Detail), dan Slot 3 (Bottom Wide Interior).
           </p>
         </div>
 
@@ -182,7 +193,7 @@ export function SpaceSettingsTab({
                   Slot 1: Nook / Portrait
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-canvas-secondary border border-border-subtle text-text-muted font-semibold">
-                  4:5 Aspect
+                  4:5 WebP
                 </span>
               </div>
 
@@ -199,6 +210,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image1Url?.startsWith("data:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    {formatDataUrlSize(spaceVibe.image1Url)}
                   </div>
                 )}
               </div>
@@ -221,15 +237,25 @@ export function SpaceSettingsTab({
               <button
                 type="button"
                 onClick={() => fileInput1Ref.current?.click()}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer"
+                disabled={compressingSlot === 1}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
               >
-                <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                <span>Upload Local File</span>
+                {compressingSlot === 1 ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Compressing WebP...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
+                    <span>Upload &amp; Kompresi WebP</span>
+                  </>
+                )}
               </button>
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
-                  Or Direct Image URL
+                  Atau Direct Image URL
                 </label>
                 <input
                   type="url"
@@ -245,7 +271,7 @@ export function SpaceSettingsTab({
 
             {/* Presets */}
             <div className="pt-2 border-t border-border-subtle space-y-1">
-              <span className="text-[10px] text-text-muted block">Curated Samples:</span>
+              <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT1_PHOTOS.map((p) => (
                   <button
@@ -269,7 +295,7 @@ export function SpaceSettingsTab({
                   Slot 2: Detail Cup / Barista
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-canvas-secondary border border-border-subtle text-text-muted font-semibold">
-                  4:5 Aspect
+                  4:5 WebP
                 </span>
               </div>
 
@@ -286,6 +312,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image2Url?.startsWith("data:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    {formatDataUrlSize(spaceVibe.image2Url)}
                   </div>
                 )}
               </div>
@@ -308,15 +339,25 @@ export function SpaceSettingsTab({
               <button
                 type="button"
                 onClick={() => fileInput2Ref.current?.click()}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer"
+                disabled={compressingSlot === 2}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
               >
-                <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                <span>Upload Local File</span>
+                {compressingSlot === 2 ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Compressing WebP...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
+                    <span>Upload &amp; Kompresi WebP</span>
+                  </>
+                )}
               </button>
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
-                  Or Direct Image URL
+                  Atau Direct Image URL
                 </label>
                 <input
                   type="url"
@@ -332,7 +373,7 @@ export function SpaceSettingsTab({
 
             {/* Presets */}
             <div className="pt-2 border-t border-border-subtle space-y-1">
-              <span className="text-[10px] text-text-muted block">Curated Samples:</span>
+              <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT2_PHOTOS.map((p) => (
                   <button
@@ -356,7 +397,7 @@ export function SpaceSettingsTab({
                   Slot 3: Wide Atmosphere
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-canvas-secondary border border-border-subtle text-text-muted font-semibold">
-                  16:9 / 21:9
+                  16:9 WebP
                 </span>
               </div>
 
@@ -373,6 +414,11 @@ export function SpaceSettingsTab({
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
                     <ImageIcon className="w-6 h-6 opacity-40 mb-1" />
                     <span className="text-[10px]">Empty Slot</span>
+                  </div>
+                )}
+                {spaceVibe.image3Url?.startsWith("data:") && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-mono bg-charcoal/80 text-white backdrop-blur-xs">
+                    {formatDataUrlSize(spaceVibe.image3Url)}
                   </div>
                 )}
               </div>
@@ -395,15 +441,25 @@ export function SpaceSettingsTab({
               <button
                 type="button"
                 onClick={() => fileInput3Ref.current?.click()}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer"
+                disabled={compressingSlot === 3}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-canvas-secondary border border-border-subtle rounded-md hover:bg-[#EFEFEA] transition-colors cursor-pointer disabled:opacity-50"
               >
-                <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
-                <span>Upload Local File</span>
+                {compressingSlot === 3 ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Compressing WebP...</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-3.5 h-3.5 text-accent-warm" />
+                    <span>Upload &amp; Kompresi WebP</span>
+                  </>
+                )}
               </button>
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-text-muted block">
-                  Or Direct Image URL
+                  Atau Direct Image URL
                 </label>
                 <input
                   type="url"
@@ -419,7 +475,7 @@ export function SpaceSettingsTab({
 
             {/* Presets */}
             <div className="pt-2 border-t border-border-subtle space-y-1">
-              <span className="text-[10px] text-text-muted block">Curated Samples:</span>
+              <span className="text-[10px] text-text-muted block">Sampel Foto:</span>
               <div className="flex flex-wrap gap-1">
                 {PRESET_SLOT3_PHOTOS.map((p) => (
                   <button
@@ -447,7 +503,7 @@ export function SpaceSettingsTab({
             <span>2. Editorial Storytelling, Philosophy Quote &amp; Highlights</span>
           </h3>
           <p className="text-xs text-text-muted">
-            Configure the left column narrative copy, pull-quote with left accent border, and bulleted amenity highlights.
+            Konfigurasi narasi copy kolom kiri, pull-quote dengan aksen vertikal, dan poin fasilitas unggulan.
           </p>
         </div>
 
@@ -550,7 +606,7 @@ export function SpaceSettingsTab({
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-text-primary">
-                Sub-Highlights (3 Key Points)
+                Sub-Highlights (3 Poin Utama)
               </span>
               <button
                 type="button"

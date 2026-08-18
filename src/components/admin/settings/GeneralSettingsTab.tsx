@@ -3,6 +3,7 @@
 import React, { useRef, useState } from "react";
 import { BrandingSettings } from "@/lib/settings-store";
 import { BrandLogo } from "@/components/ui/BrandLogo";
+import { compressImageToWebP } from "@/lib/image-utils";
 import {
   Upload,
   RefreshCw,
@@ -16,6 +17,7 @@ import {
   Moon,
   Info,
   Type,
+  Loader2,
 } from "lucide-react";
 
 interface GeneralSettingsTabProps {
@@ -31,32 +33,54 @@ export function GeneralSettingsTab({
 
   const [previewSize, setPreviewSize] = useState<"sm" | "md" | "lg">("sm");
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.includes("svg") && !file.name.endsWith(".svg")) {
-      setUploadStatus("Please upload a valid .svg vector file.");
-      setTimeout(() => setUploadStatus(null), 3000);
-      return;
-    }
+    try {
+      setIsUploading(true);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        onChangeBranding({ logoSvgUrl: dataUrl });
-        setUploadStatus("Icon Mark (logo.svg) updated successfully!");
-        setTimeout(() => setUploadStatus(null), 3500);
+      // If vector SVG file, read directly
+      if (file.type.includes("svg") || file.name.endsWith(".svg")) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          if (dataUrl) {
+            onChangeBranding({ logoSvgUrl: dataUrl });
+            setUploadStatus("Icon Mark Vector (logo.svg) berhasil diperbarui!");
+            setTimeout(() => setUploadStatus(null), 3500);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
       }
-    };
-    reader.readAsDataURL(file);
+
+      // If raster image (PNG/WebP/JPG), compress to WebP (<25KB)
+      if (file.type.startsWith("image/")) {
+        const webpDataUrl = await compressImageToWebP(file, 400, 0.9);
+        onChangeBranding({ logoSvgUrl: webpDataUrl });
+        setUploadStatus("Icon Mark WebP terkompresi berhasil diperbarui!");
+        setTimeout(() => setUploadStatus(null), 3500);
+        return;
+      }
+
+      setUploadStatus("Harap unggah file SVG, PNG, WebP, atau JPG yang valid.");
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (err) {
+      console.error("Gagal mengunggah logo:", err);
+      setUploadStatus("Gagal memproses file logo.");
+      setTimeout(() => setUploadStatus(null), 3000);
+    } finally {
+      setIsUploading(false);
+      if (logoFileInputRef.current) logoFileInputRef.current.value = "";
+    }
   };
 
   const handleResetLogo = () => {
     onChangeBranding({ logoSvgUrl: "/logo.svg" });
-    setUploadStatus("Icon Mark reset to default (/logo.svg).");
+    setUploadStatus("Icon Mark reset ke default (/logo.svg).");
     setTimeout(() => setUploadStatus(null), 3000);
   };
 
@@ -71,7 +95,7 @@ export function GeneralSettingsTab({
           </h3>
         </div>
         <p className="text-xs text-[#777772] leading-relaxed">
-          Combines the <strong className="text-[#1E1E1C]">Icon Mark (logo.svg)</strong> with <strong className="text-[#1E1E1C]">3-line stacked CSS typography (COFFEE / AND / BEYOND)</strong> for crisp, scalable rendering across all viewports.
+          Kombinasi <strong className="text-[#1E1E1C]">Icon Mark (logo.svg)</strong> dengan <strong className="text-[#1E1E1C]">3-line stacked CSS typography (COFFEE / AND / BEYOND)</strong> untuk tampilan tajam dan responsif di seluruh layar.
         </p>
       </div>
 
@@ -150,17 +174,27 @@ export function GeneralSettingsTab({
             <input
               ref={logoFileInputRef}
               type="file"
-              accept=".svg,image/svg+xml"
+              accept=".svg,image/svg+xml,image/png,image/webp,image/jpeg"
               className="hidden"
               onChange={handleLogoUpload}
             />
             <button
               type="button"
               onClick={() => logoFileInputRef.current?.click()}
-              className="w-full py-2.5 px-3 text-xs font-semibold text-[#1E1E1C] bg-[#F7F7F5] border border-[#E7E7E3] hover:bg-[#EFEFEA] rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+              disabled={isUploading}
+              className="w-full py-2.5 px-3 text-xs font-semibold text-[#1E1E1C] bg-[#F7F7F5] border border-[#E7E7E3] hover:bg-[#EFEFEA] rounded-md transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs disabled:opacity-50"
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Upload Custom logo.svg</span>
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload Custom logo.svg / PNG / WebP</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -329,3 +363,5 @@ export function GeneralSettingsTab({
     </div>
   );
 }
+
+export default GeneralSettingsTab;
