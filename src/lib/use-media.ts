@@ -3,21 +3,28 @@
 import { useState, useEffect } from "react";
 import { getMediaUrl, resolveMediaUrl } from "@/lib/media-storage";
 
+// When IndexedDB is empty and no other URL is available, we show the poster
+// image instead of making a 404 request to a non-existent local file.
+const LOCAL_VIDEO_FALLBACK = "";
+const LOCAL_POSTER_FALLBACK =
+  "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1600&auto=format&fit=crop";
+
 /**
- * Universal React hook for resolving media URLs with the following priority:
- * 1. If sourceUrl is "indexeddb://custom_intro_video" -> resolve blob URL from IndexedDB
- * 2. If sourceUrl is any other "indexeddb://<key>" -> resolve from IndexedDB
- * 3. If sourceUrl is a standard web/data URL -> return as-is
- * 4. Falls back to fallbackUrl at all times if resolution fails
+ * Universal React hook for resolving media URLs.
  *
- * Also listens to all media update events for reactive cross-tab sync.
+ * Priority:
+ * 1. indexeddb://<key>  → resolve Blob URL from IndexedDB (client-only, post-mount)
+ * 2. data:/http(s):/blob: URL → return as-is immediately
+ * 3. null/undefined → return fallbackUrl
+ *
+ * Re-resolves on cnb_media_updated / cnb_settings_updated events.
  */
 export function useMediaUrl(
   sourceUrl?: string | null,
   fallbackUrl: string = ""
 ): string {
   const [resolvedUrl, setResolvedUrl] = useState<string>(() => {
-    // Initialize with non-indexeddb URLs immediately for SSR/hydration
+    // SSR-safe: only use plain URLs on initial render
     if (sourceUrl && !sourceUrl.startsWith("indexeddb://")) {
       return sourceUrl;
     }
@@ -28,29 +35,16 @@ export function useMediaUrl(
     let isMounted = true;
 
     async function resolve() {
-      // Priority 1: indexeddb:// URI scheme — resolve from IndexedDB
       if (sourceUrl?.startsWith("indexeddb://")) {
         try {
           const url = await resolveMediaUrl(sourceUrl, fallbackUrl);
-          if (isMounted && url) {
-            setResolvedUrl(url);
-            return;
-          }
-        } catch (err) {
-          console.warn("Failed to resolve indexeddb media URL:", err);
+          if (isMounted) setResolvedUrl(url || fallbackUrl);
+        } catch {
+          if (isMounted) setResolvedUrl(fallbackUrl);
         }
-        if (isMounted) setResolvedUrl(fallbackUrl);
         return;
       }
-
-      // Priority 2: Standard web or data URL — use directly
-      if (sourceUrl) {
-        if (isMounted) setResolvedUrl(sourceUrl);
-        return;
-      }
-
-      // Priority 3: No sourceUrl at all — use fallback
-      if (isMounted) setResolvedUrl(fallbackUrl);
+      if (isMounted) setResolvedUrl(sourceUrl || fallbackUrl);
     }
 
     resolve();
@@ -74,72 +68,82 @@ export function useMediaUrl(
 }
 
 /**
- * Specialized hook that ALWAYS prioritizes IndexedDB custom_intro_video
- * over any settings value. This is the correct hook for the video banner.
+ * Specialized hook for the intro video banner.
  *
- * Priority order:
- * 1. IndexedDB "custom_intro_video" key (if user uploaded a custom video)
- * 2. settingsVideoUrl (from settings store or passed explicitly)
- * 3. hardFallbackUrl (last resort, e.g. mixkit CDN URL)
+ * ALWAYS checks IndexedDB "custom_intro_video" first — regardless of
+ * whatever URL is stored in settings/localStorage. This prevents stale
+ * localStorage values from overriding the user's uploaded video.
+ *
+ * Priority:
+ * 1. IndexedDB "custom_intro_video" Blob URL  (user-uploaded, highest priority)
+ * 2. settingsVideoUrl if it's an indexeddb:// URI for a different key
+ * 3. settingsVideoUrl if it's a plain HTTP URL (not the local fallback)
+ * 4. LOCAL_VIDEO_FALLBACK (/video/intro.mp4)
+ *
+ * Returns: { videoUrl, posterUrl }
+ *   - videoUrl  — the resolved video src to pass to <video key={videoUrl} src={videoUrl}>
+ *   - posterUrl — poster to show while video loads
  */
 export function useIntroVideoUrl(
   settingsVideoUrl?: string | null,
-  hardFallbackUrl: string = "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4"
-): string {
-  const [resolvedUrl, setResolvedUrl] = useState<string>(() => {
-    // Initialize with settings URL if it's a plain web URL
-    if (
-      settingsVideoUrl &&
-      !settingsVideoUrl.startsWith("indexeddb://") &&
-      settingsVideoUrl !== hardFallbackUrl
-    ) {
-      return settingsVideoUrl;
-    }
-    return hardFallbackUrl;
-  });
+  posterUrl: string = LOCAL_POSTER_FALLBACK
+): { videoUrl: string; posterUrl: string } {
+  // Initial state is EMPTY so the video element starts without a src.
+  // After mount, useEffect resolves IndexedDB and sets the real URL.
+  // This guarantees React will see a URL change (empty → blob URL) and,
+  // combined with key={videoUrl}, will remount the <video> element.
+  const [videoUrl, setVideoUrl] = useState<string>("");
 
   useEffect(() => {
     let isMounted = true;
 
     async function resolve() {
-      // Step 1: ALWAYS check IndexedDB for custom_intro_video first
+      // Step 1: ALWAYS check IndexedDB for the user-uploaded custom video
       try {
         const customUrl = await getMediaUrl("custom_intro_video");
         if (customUrl && isMounted) {
-          setResolvedUrl(customUrl);
+          setVideoUrl(customUrl);
           return;
         }
       } catch {
-        // No custom video in IndexedDB, continue to fallback
+        // IndexedDB not yet initialized or key missing — fall through
       }
 
-      // Step 2: If settingsVideoUrl is an indexeddb:// URI (for a different key)
-      if (settingsVideoUrl?.startsWith("indexeddb://")) {
+      // Step 2: settingsVideoUrl is a non-default indexeddb:// key
+      if (
+        settingsVideoUrl?.startsWith("indexeddb://") &&
+        settingsVideoUrl !== "indexeddb://custom_intro_video"
+      ) {
         try {
-          const url = await resolveMediaUrl(settingsVideoUrl, hardFallbackUrl);
+          const url = await resolveMediaUrl(settingsVideoUrl, LOCAL_VIDEO_FALLBACK);
           if (isMounted && url) {
-            setResolvedUrl(url);
+            setVideoUrl(url);
             return;
           }
         } catch {
           // ignore
         }
-        if (isMounted) setResolvedUrl(hardFallbackUrl);
-        return;
       }
 
-      // Step 3: Use settingsVideoUrl if it's a valid plain URL
-      if (settingsVideoUrl && settingsVideoUrl !== "indexeddb://custom_intro_video") {
-        if (isMounted) setResolvedUrl(settingsVideoUrl);
-        return;
+      // Step 3: Plain HTTP URL in settings (not the local fallback itself)
+      if (
+        settingsVideoUrl &&
+        !settingsVideoUrl.startsWith("indexeddb://") &&
+        settingsVideoUrl !== LOCAL_VIDEO_FALLBACK
+      ) {
+        if (isMounted) {
+          setVideoUrl(settingsVideoUrl);
+          return;
+        }
       }
 
-      // Step 4: Use hard fallback
-      if (isMounted) setResolvedUrl(hardFallbackUrl);
+      // Step 4: Use local video fallback
+      if (isMounted) setVideoUrl(LOCAL_VIDEO_FALLBACK);
     }
 
     resolve();
 
+    // Re-resolve whenever a video or settings update is broadcast
     const handleUpdate = () => resolve();
     window.addEventListener("cnb_media_updated", handleUpdate);
     window.addEventListener("cnb_settings_updated", handleUpdate);
@@ -153,9 +157,9 @@ export function useIntroVideoUrl(
       window.removeEventListener("coffee_settings_updated", handleUpdate);
       window.removeEventListener("storage", handleUpdate);
     };
-  }, [settingsVideoUrl, hardFallbackUrl]);
+  }, [settingsVideoUrl]);
 
-  return resolvedUrl;
+  return { videoUrl, posterUrl };
 }
 
 export default useMediaUrl;

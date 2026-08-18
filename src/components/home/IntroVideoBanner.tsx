@@ -5,9 +5,6 @@ import { useSettingsStore, DEFAULT_SETTINGS } from "@/lib/settings-store";
 import { useIntroVideoUrl } from "@/lib/use-media";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize } from "lucide-react";
 
-const MIXKIT_FALLBACK =
-  "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4";
-
 export function IntroVideoBanner() {
   const { settings } = useSettingsStore();
   const introVideo = settings.introVideo || DEFAULT_SETTINGS.introVideo;
@@ -15,49 +12,47 @@ export function IntroVideoBanner() {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // ALWAYS prioritize IndexedDB custom_intro_video over any settings URL
-  // This handles the case where localStorage still has old mixkit/placeholder URL
-  const resolvedVideoUrl = useIntroVideoUrl(
+  // useIntroVideoUrl ALWAYS prioritizes IndexedDB "custom_intro_video" over any
+  // settings/localStorage value. Initial videoUrl is "" (empty) so that on the
+  // first render the <video> has no src. Once useEffect resolves IndexedDB, the
+  // videoUrl changes and React remounts the <video> via key={videoUrl}.
+  const { videoUrl, posterUrl } = useIntroVideoUrl(
     settings.hero?.videoUrl,
-    MIXKIT_FALLBACK
+    introVideo.posterUrl || DEFAULT_SETTINGS.introVideo.posterUrl
   );
 
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  // Safely attempt autoplay upon mount or videoUrl changes
+  // KEY FIX: whenever videoUrl changes (e.g. SSR empty → IndexedDB blob URL),
+  // call videoRef.current.load() so the browser reloads the media stream.
+  // React's key={videoUrl} on <video> will remount the DOM node, but we also
+  // call load() + play() defensively in case React batches the update.
   useEffect(() => {
     if (!introVideo?.isEnabled) return;
+    if (!videoUrl || !videoRef.current) return;
 
-    if (videoRef.current) {
-      videoRef.current.muted = true;
-      videoRef.current
-        .play()
-        .then(() => {
-          setIsPlaying(true);
-        })
-        .catch(() => {
-          // Autoplay policy prevented immediate playback without gesture
-          setIsPlaying(false);
-        });
-    }
-  }, [introVideo?.isEnabled, resolvedVideoUrl]);
+    const vid = videoRef.current;
+    vid.muted = true;
+    // load() resets the media element and starts fetching the new src
+    vid.load();
+    vid
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch(() => setIsPlaying(false));
+  }, [videoUrl, introVideo?.isEnabled]);
 
   // Fullscreen change listener
   useEffect(() => {
-    const handleFullscreenChange = () => {
+    const handleFullscreenChange = () =>
       setIsFullscreen(!!document.fullscreenElement);
-    };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
+    return () =>
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
   }, []);
 
-  if (!introVideo?.isEnabled) {
-    return null;
-  }
+  if (!introVideo?.isEnabled) return null;
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -67,20 +62,16 @@ export function IntroVideoBanner() {
     } else {
       videoRef.current
         .play()
-        .then(() => {
-          setIsPlaying(true);
-        })
-        .catch((err) => {
-          console.warn("Video playback error:", err);
-        });
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.warn("Video playback error:", err));
     }
   };
 
   const toggleMute = () => {
     if (!videoRef.current) return;
-    const nextMuted = !isMuted;
-    videoRef.current.muted = nextMuted;
-    setIsMuted(nextMuted);
+    const next = !isMuted;
+    videoRef.current.muted = next;
+    setIsMuted(next);
   };
 
   const toggleFullscreen = () => {
@@ -92,29 +83,45 @@ export function IntroVideoBanner() {
     }
   };
 
-  const posterSrc =
-    introVideo.posterUrl || DEFAULT_SETTINGS.introVideo.posterUrl;
-
   return (
     <section
       ref={containerRef}
       className="relative w-full bg-[#121211] overflow-hidden select-none border-b border-border-subtle group"
     >
-      {/* Pure video — no text overlay */}
       <div className="relative w-full aspect-video max-h-[540px] sm:max-h-[500px] lg:max-h-[540px] overflow-hidden bg-charcoal">
-        <video
-          ref={videoRef}
-          src={resolvedVideoUrl}
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster={posterSrc}
-          className="w-full h-full object-cover"
-        />
+        {/*
+          key={videoUrl} is CRITICAL:
+          - Forces React to unmount + remount the <video> DOM node whenever
+            videoUrl changes (e.g. "" → blob:// after IndexedDB resolves).
+          - Without key, React only patches the src attribute; browsers do NOT
+            reload the media stream on attribute-only updates.
+          - Combined with the load() + play() in useEffect above, this
+            guarantees the custom IndexedDB video always plays on the public page.
+        */}
+        {videoUrl ? (
+          <video
+            key={videoUrl}
+            ref={videoRef}
+            src={videoUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            poster={posterUrl}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          /* Show poster image while IndexedDB is being resolved (avoids flash of wrong video) */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={posterUrl}
+            alt="Coffee And Beyond — Loading Video"
+            className="w-full h-full object-cover"
+          />
+        )}
 
         {/* Floating Controls — Bottom Right */}
-        <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 z-20 flex items-center gap-2 bg-black/55 backdrop-blur-md p-1.5 rounded-full border border-white/20 shadow-lg">
+        <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 z-20 flex items-center gap-2 bg-black/55 backdrop-blur-md p-1.5 rounded-full border border-white/20 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           {/* Play / Pause */}
           <button
             type="button"

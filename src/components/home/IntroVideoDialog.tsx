@@ -30,10 +30,10 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ALWAYS prioritize IndexedDB custom_intro_video over settings store value
-  const videoSrc = useIntroVideoUrl(
+  // ALWAYS prioritizes IndexedDB "custom_intro_video" over any settings value
+  const { videoUrl: videoSrc } = useIntroVideoUrl(
     settings.hero?.videoUrl,
-    "https://assets.mixkit.co/videos/preview/mixkit-coffee-maker-machine-brewing-coffee-42456-large.mp4"
+    introVideo.posterUrl || DEFAULT_SETTINGS.introVideo.posterUrl
   );
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -267,8 +267,9 @@ export function IntroVideoDialog({ isOpen, onClose }: IntroVideoDialogProps) {
           )}
 
           <video
+            key={videoSrc}
             ref={videoRef}
-            src={videoSrc}
+            src={videoSrc || undefined}
             playsInline
             loop
             onTimeUpdate={handleTimeUpdate}
